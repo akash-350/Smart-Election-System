@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Live{% endblock %}
+{% block head %}
+<script src="{{ asset('vendor/chart.umd.min.js') }}" defer></script>
+{% endblock %}
+{% block body %}
+<main class="live">
+  <header class="live-head">
+    <div class="brand">
+      <span class="brand-mark">{{ icon('ballot') }}</span>
+      <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Live</span></span>
+    </div>
+    <div class="live-title"><h1 id="name">…</h1><span id="state" class="badge"></span></div>
+    <div class="live-clock" id="clock"></div>
+  </header>
+
+  <!-- While voting is open (or before) -->
+  <section class="live-grid single" id="openView">
+    <div class="card live-main">
+      <div class="live-numbers">
+        <div><span class="live-label">Votes cast</span><b id="voted">0</b></div>
+        <div><span class="live-label">Registered</span><b id="registered">0</b></div>
+        <div><span class="live-label">Turnout</span><b id="turnout" class="accent">0%</b></div>
+      </div>
+      <div class="live-meter"><span id="meter"></span></div>
+      <div class="chartbox tall"><canvas id="timeline" role="img" aria-label="Votes over time"></canvas></div>
+      <p class="live-note">{{ icon('lock') }} Vote counts stay sealed until voting closes. Only turnout is shown.</p>
+    </div>
+  </section>
+
+  <!-- After voting closes -->
+  <section id="closedView" hidden>
+    <div class="winner" id="winnerCard">
+      <div class="trophy">{{ icon('trophy') }}</div>
+      <div class="w-label" id="winnerLabel">Winner</div>
+      <div class="w-name" id="winnerName"></div>
+      <div class="w-figs" id="winnerFigs"></div>
+    </div>
+    <div class="live-grid">
+      <div class="card live-main"><div class="chartbox tall"><canvas id="results" role="img" aria-label="Results"></canvas></div></div>
+      <div class="card">
+        <h2 style="font-size:20px;margin-bottom:12px">Final turnout</h2>
+        <div class="live-numbers single"><b id="finalTurnout" class="accent">0%</b></div>
+        <p class="card-sub" id="finalSub"></p>
+        <div class="checks" id="checks"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const C = { navy: "#1E3A8A", green: "#15803D", grid: "#E8EDF3", muted: "#64748B" };
+let timelineChart, resultsChart, lastVoted = null;
+
+function animateNumber(el, to, suffix = "") {
+  const from = parseFloat(el.textContent) || 0, start = performance.now(), dur = 700;
+  const step = now => {
+    const k = Math.min((now - start) / dur, 1), v = from + (to - from) * (1 - Math.pow(1 - k, 3));
+    el.textContent = (Number.isInteger(to) ? Math.round(v) : v.toFixed(1)) + suffix;
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function tick() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+
+async function load() {
+  try {
+    const r = await fetch("{{ url_for('live_api') }}");
+    if (!r.ok) return;
+    const d = await r.json(), t = d.turnout, e = d.election;
+    $("name").textContent = e.name;
+    $("state").className = "badge " + (e.state === "open" ? "green live-dot" : e.state === "closed" ? "slate" : "saffron");
+    $("state").textContent = e.state === "open" ? "Voting open" : e.state === "closed" ? "Closed" : "Opening soon";
+    $("openView").hidden = e.state === "closed";
+    $("closedView").hidden = e.state !== "closed";
+
+    if (e.state !== "closed") {
+      if (lastVoted !== null && t.voted > lastVoted) {
+        $("voted").classList.remove("pulse"); void $("voted").offsetWidth; $("voted").classList.add("pulse");
+      }
+      lastVoted = t.voted;
+      animateNumber($("voted"), t.voted);
+      animateNumber($("registered"), t.registered);
+      animateNumber($("turnout"), t.participation, "%");
+      $("meter").style.width = t.participation + "%";
+      if (typeof Chart !== "undefined") {
+        const labels = d.timeline.map(p => p.t), data = d.timeline.map(p => p.votes);
+        if (timelineChart) { timelineChart.data.labels = labels; timelineChart.data.datasets[0].data = data; timelineChart.update(); }
+        else timelineChart = new Chart($("timeline"), {
+          type: "line",
+          data: { labels, datasets: [{ data, borderColor: C.navy, backgroundColor: "rgba(30,58,138,.12)", fill: true, tension: .35, pointRadius: 0, borderWidth: 3 }] },
+          options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+            scales: { x: { grid: { display: false }, ticks: { color: C.muted, maxTicksLimit: 8, font: { size: 14 } } },
+                      y: { beginAtZero: true, ticks: { precision: 0, color: C.muted, font: { size: 14 } }, grid: { color: C.grid }, border: { display: false } } } },
+        });
+      }
+      return;
+    }
+
+    const res = d.results;
+    const winners = res.leaders;
+    $("winnerLabel").textContent = winners.length > 1 ? "Tie" : winners.length ? "Winner" : "No winner";
+    $("winnerName").textContent = winners.length ? winners.join(" · ") : "No votes for any candidate";
+    if (winners.length === 1) {
+      const i = res.labels.indexOf(winners[0]);
+      $("winnerFigs").textContent = `${res.values[i]} ${res.values[i] === 1 ? "vote" : "votes"} · ${res.percentages[i]}% of all votes`;
+    }
+    $("finalTurnout").textContent = t.participation + "%";
+    $("finalSub").textContent = `${t.voted} of ${t.registered} registered voters voted`;
+    const ck = res.checks;
+    $("checks").innerHTML = [
+      [ck.chain_ok, "Ballot box tamper check passed"],
+      [ck.counts_match, `Ballots match voters (${res.total})`],
+      [ck.receipts === 0 || ck.receipts === res.total, "Every vote has a receipt"],
+    ].map(([ok, text]) => `<div class="check-row ${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"} ${text}</div>`).join("");
+    if (typeof Chart !== "undefined" && !resultsChart) {
+      resultsChart = new Chart($("results"), {
+        type: "bar",
+        data: { labels: res.labels, datasets: [{ data: res.values, backgroundColor: res.labels.map((n, i) => candidateColour(i, n)), borderRadius: 10, maxBarThickness: 110 }] },
+        options: { maintainAspectRatio: false, indexAxis: "y", animation: { duration: 2200, easing: "easeOutQuart" },
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0, font: { size: 15 } }, grid: { color: C.grid } },
+                    y: { grid: { display: false }, ticks: { color: "#0F172A", font: { size: 20, weight: 700 } } } } },
+      });
+    }
+  } catch (_) { /* keep showing the last data */ }
+}
+window.addEventListener("DOMContentLoaded", () => { tick(); load(); setInterval(load, 5000); setInterval(tick, 15000); });
+</script>
+{% endblock %}

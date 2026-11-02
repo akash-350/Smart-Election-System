@@ -1,0 +1,176 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Election setup{% endblock %}
+{% block content %}
+{% set state = election.state %}
+<div class="page-head">
+  <div>
+    <h1>Election setup</h1>
+    <p>Name the election, set the candidates, then open and close voting.</p>
+  </div>
+</div>
+
+<div class="alert" id="msg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+
+<div class="grid two-col" style="align-items:start">
+  <div class="grid" style="gap:16px">
+    <!-- Current election -->
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div>
+          <div class="card-sub" style="margin:0">Election #{{ election.election_id }}</div>
+          <h2 style="font-size:22px;margin:2px 0 4px">{{ election.name }}</h2>
+          {{ state_badge(state) }}
+        </div>
+        {% if state == 'setup' %}
+        <button class="btn btn-secondary btn-sm" id="renameElection" type="button">{{ icon('edit') }}Rename</button>
+        {% endif %}
+      </div>
+
+      <div class="timeline" style="margin-top:22px">
+        <div class="t-step {{ 'now' if state == 'setup' else 'done' }}"><b>Setup</b>{{ election.created_at[:16] }}</div>
+        <div class="t-step {{ 'now' if state == 'open' else ('done' if state == 'closed' else '') }}"><b>Voting open</b>{{ election.opened_at[:16] if election.opened_at else '—' }}</div>
+        <div class="t-step {{ 'done' if state == 'closed' else '' }}"><b>Closed</b>{{ election.closed_at[:16] if election.closed_at else '—' }}</div>
+      </div>
+
+      {% if state == 'setup' %}
+        <p class="card-sub">When you open voting, the candidate list and election name are locked and can't be changed.</p>
+        <button class="btn btn-success btn-lg" id="openBtn" type="button">{{ icon('play') }}Open voting</button>
+      {% elif state == 'open' %}
+        <p class="card-sub">{{ turnout.voted }} of {{ turnout.registered }} voters have voted ({{ turnout.participation }}%). Closing is final — voting can't be reopened.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn btn-primary btn-lg" href="{{ url_for('voting.vote_page') }}">{{ icon('vote') }}Go to voting booth</a>
+          <button class="btn btn-danger btn-lg" id="closeBtn" type="button">{{ icon('stop') }}Close voting</button>
+        </div>
+      {% else %}
+        <p class="card-sub">Voting has closed. The results are final and permanently stored.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn btn-primary btn-lg" href="{{ url_for('results_page', election_id=election.election_id) }}">{{ icon('trophy') }}Declare results</a>
+          <button class="btn btn-secondary btn-lg" id="newBtn" type="button">{{ icon('plus') }}Start new election</button>
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- Candidates -->
+    <section class="card">
+      <div class="card-title">Candidates</div>
+      <div class="card-sub">{{ candidates|length }} options on the ballot. NOTA ("None of the above") is always included.</div>
+      <ul class="cand-list">
+        {% for name in candidates %}
+        <li class="cand-item">
+          <span class="avatar" data-index="{{ loop.index0 }}" data-name="{{ name }}">{{ '✕' if name == nota else name[0]|upper }}</span>
+          <span class="cand-name">{{ name }}</span>
+          {% if state == 'setup' and name != nota %}
+          <span class="row-actions">
+            <button class="btn btn-ghost btn-sm" type="button" data-rename="{{ name }}" aria-label="Rename {{ name }}">{{ icon('edit') }}</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-remove="{{ name }}" aria-label="Remove {{ name }}">{{ icon('trash') }}</button>
+          </span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if state == 'setup' %}
+      <form class="inline-form" id="addForm">
+        <input class="input" id="newCandidate" maxlength="40" placeholder="New candidate or party name" aria-label="New candidate name" required>
+        <button class="btn btn-primary" type="submit">{{ icon('plus') }}Add</button>
+      </form>
+      {% else %}
+      <p class="lock-note">{{ icon('lock') }}The ballot is locked because voting has {{ 'started' if state == 'open' else 'finished' }}.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <!-- Rules + history -->
+  <div class="grid" style="gap:16px">
+    <section class="card">
+      <div class="card-title">Fair election rules</div>
+      <div class="card-sub">These are enforced by the database itself, not just this screen.</div>
+      <ul class="tips">
+        <li>Votes can never be edited or deleted.</li>
+        <li>Each voter can vote only once per election.</li>
+        <li>Ballots are secret — they don't record who voted.</li>
+        <li>Results stay sealed until voting closes.</li>
+        <li>A closed election can never be reopened.</li>
+        <li>Every ballot is hash-chained, so tampering is detectable.</li>
+      </ul>
+    </section>
+    <section class="card">
+      <div class="card-title">Election history</div>
+      <div class="card-sub">Past elections are kept permanently.</div>
+      {% for e in history %}
+      <div class="history-row">
+        <span class="h-name">{{ e.name }}<br><span class="h-meta">#{{ e.election_id }} · {{ e.ballots }} ballot{{ '' if e.ballots == 1 else 's' }}</span></span>
+        {{ state_badge(e.state) }}
+        {% if e.state == 'closed' %}<a class="btn btn-ghost btn-sm" href="{{ url_for('results_page', election_id=e.election_id) }}">Results</a>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+  </div>
+</div>
+
+<script>
+const msg = document.getElementById("msg");
+const ELECTION_NAME = {{ election.name|tojson }};
+document.querySelectorAll(".cand-item .avatar").forEach(el => {
+  el.style.background = candidateColour(Number(el.dataset.index), el.dataset.name);
+});
+
+async function act(url, body, success) {
+  const { ok, data } = await postJSON(url, body);
+  if (!ok) { setStatus(msg, data.error || "Something went wrong.", "error"); return false; }
+  if (success) sessionStorage.setItem("flash", success);
+  location.reload();
+  return true;
+}
+const flash = sessionStorage.getItem("flash");
+if (flash) { setStatus(msg, flash, "success"); sessionStorage.removeItem("flash"); }
+
+const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+
+on("renameElection", async () => {
+  const name = await confirmDialog({ title: "Rename election", message: "Give this election a clear name, e.g. “Class Monitor 2026”.",
+                                     input: true, value: ELECTION_NAME, confirmLabel: "Save" });
+  if (name) act("{{ url_for('election_action', action='rename') }}", { name }, "Election renamed.");
+});
+
+on("openBtn", async () => {
+  const ok = await confirmDialog({ title: "Open voting?", confirmLabel: "Open voting",
+    message: "The candidate list will be locked. Voters can then use the voting booth." });
+  if (ok) act("{{ url_for('election_action', action='open') }}", {}, "Voting is now open.");
+});
+
+on("closeBtn", async () => {
+  const typed = await confirmDialog({ title: "Close voting permanently?", danger: true, confirmLabel: "Close voting",
+    message: `No more votes will be accepted and this can't be undone. Type the election name to confirm: ${ELECTION_NAME}`,
+    requireText: ELECTION_NAME });
+  if (typed) act("{{ url_for('election_action', action='close') }}", { confirm: typed }, "Voting closed. Results are ready to declare.");
+});
+
+on("newBtn", async () => {
+  const name = await confirmDialog({ title: "Start a new election", confirmLabel: "Create",
+    message: "The current election and its votes stay saved in history. Candidates are copied to the new election.",
+    input: true, placeholder: "Election name" });
+  if (name) act("{{ url_for('election_action', action='new') }}", { name }, "New election created. Set it up, then open voting.");
+});
+
+const addForm = document.getElementById("addForm");
+if (addForm) addForm.addEventListener("submit", event => {
+  event.preventDefault();
+  const name = document.getElementById("newCandidate").value.trim();
+  if (name) act("{{ url_for('candidate_action', action='add') }}", { name }, `Added ${name}.`);
+});
+
+document.querySelectorAll("[data-rename]").forEach(button => button.addEventListener("click", async () => {
+  const old = button.dataset.rename;
+  const name = await confirmDialog({ title: "Rename candidate", input: true, value: old, confirmLabel: "Save" });
+  if (name && name !== old) act("{{ url_for('candidate_action', action='rename') }}", { old, name }, `Renamed to ${name}.`);
+}));
+
+document.querySelectorAll("[data-remove]").forEach(button => button.addEventListener("click", async () => {
+  const name = button.dataset.remove;
+  const ok = await confirmDialog({ title: `Remove ${name}?`, danger: true, confirmLabel: "Remove",
+    message: "This only affects the ballot for this election, which hasn't opened yet." });
+  if (ok) act("{{ url_for('candidate_action', action='remove') }}", { name }, `Removed ${name}.`);
+}));
+</script>
+{% endblock %}

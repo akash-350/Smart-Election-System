@@ -1,0 +1,16 @@
+# One-click deploy on Render (render.com): New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: smart-election
+    runtime: docker
+    plan: starter            # a paid plan is required for the persistent disk (votes must not vanish)
+    healthCheckPath: /
+    disk:
+      name: election-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: DEMO_SECRET_KEY
+        generateValue: true
+      - key: DEMO_ADMIN_PASSWORD
+        sync: false          # Render asks you to type the officer password on first deploy

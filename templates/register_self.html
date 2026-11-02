@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Voter registration{% endblock %}
+{% block body %}
+{% set officer = session.get('admin_logged_in') %}
+<header class="booth-top">
+  <div class="brand">
+    <span class="brand-mark">{{ icon('ballot') }}</span>
+    <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Voter registration</span></span>
+  </div>
+  <div class="booth-tools">
+    {% if officer %}
+    <a class="btn btn-ghost" href="{{ url_for('dashboard') }}">{{ icon('arrow-left') }}<span>Dashboard</span></a>
+    {% else %}
+    <a class="btn btn-ghost" href="{{ url_for('registration.status_page') }}">Check status</a>
+    <a class="btn btn-ghost" href="{{ url_for('login') }}">Officer login</a>
+    {% endif %}
+  </div>
+</header>
+
+<main class="public-wrap">
+  <ol class="steps" id="steps">
+    <li class="active">Your details</li>
+    <li>Face check</li>
+    <li>Submitted</li>
+  </ol>
+
+  <!-- Step 1: details -->
+  <form class="card booth-card" id="stepDetails" novalidate>
+    <h1 style="font-size:24px">Register to vote</h1>
+    <p class="lead" style="font-size:15px">Fill in the details exactly as on the ID card. The application is checked automatically by the AI; anything unclear is reviewed by the election officer.</p>
+
+    <div class="alert warn" style="margin-bottom:18px">Classroom demo: <b>use a made-up ID number</b>, never your real Aadhaar. Use the “Generate demo ID” button below.</div>
+
+    <div class="form-grid">
+      <div class="field full">
+        <label for="fullName">Full name</label>
+        <input class="input" id="fullName" maxlength="60" autocomplete="name" placeholder="As printed on your ID card">
+        <span class="field-error" data-error="fullName"></span>
+      </div>
+      <div class="field">
+        <label for="dob">Date of birth</label>
+        <input class="input" id="dob" type="date" max="{{ max_dob }}">
+        <span class="hint">You must be {{ min_age }} or older.</span>
+        <span class="field-error" data-error="dob"></span>
+      </div>
+      <div class="field">
+        <label for="gender">Gender</label>
+        <select class="input" id="gender">
+          <option value="">Choose…</option>
+          {% for key, label in genders.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+        </select>
+        <span class="field-error" data-error="gender"></span>
+      </div>
+
+      <div class="field full">
+        <label>ID document</label>
+        <div class="radio-cards" role="radiogroup" aria-label="ID type">
+          <label class="radio-card"><input type="radio" name="idType" value="epic" checked> {{ icon('id-card') }} Voter ID (EPIC)</label>
+          <label class="radio-card"><input type="radio" name="idType" value="aadhaar"> {{ icon('id-card') }} Aadhaar</label>
+        </div>
+        <span class="field-error" data-error="idType"></span>
+      </div>
+      <div class="field full">
+        <label for="idNumber" id="idLabel">Voter ID number</label>
+        <div class="inline-form">
+          <input class="input mono" id="idNumber" autocomplete="off" spellcheck="false">
+          <button class="btn btn-secondary" type="button" id="demoId">Generate demo ID</button>
+        </div>
+        <span class="hint" id="idHint"></span>
+        <span class="field-error" data-error="idNumber"></span>
+      </div>
+
+      <div class="field full">
+        <label for="idCard">Photo of your ID card</label>
+        <label class="upload" id="uploadBox" for="idCard">
+          <span id="uploadEmpty">{{ icon('camera') }}<br>Click to upload or take a photo of the front of your ID card<br><small>JPG or PNG, clearly readable</small></span>
+          <img id="idPreview" alt="ID card preview" hidden>
+        </label>
+        <input id="idCard" type="file" accept="image/*" capture="environment" hidden>
+        <span class="field-error" data-error="idCard"></span>
+      </div>
+
+      <div class="field">
+        <label for="mobile">Mobile number <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input class="input" id="mobile" inputmode="numeric" maxlength="13" placeholder="10 digits" autocomplete="tel">
+        <span class="field-error" data-error="mobile"></span>
+      </div>
+
+      <div class="field full">
+        <label class="consent"><input type="checkbox" id="consent">
+          <span>I agree that my name, date of birth, a masked copy of my ID number, my face and my ID card photo are stored for this election, and that the election officer will review them. My full ID number is not stored.</span></label>
+        <span class="field-error" data-error="consent"></span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-lg btn-block" type="submit" style="margin-top:6px">Continue to face check</button>
+  </form>
+
+  <!-- Step 2: face -->
+  <section class="card booth-card" id="stepFace" hidden>
+    <h1 style="font-size:24px">Face check</h1>
+    <p class="lead" style="font-size:15px">We take a short video of your face{{ ' and ask you to close and open your eyes' if liveness }}. This is used to recognise you at the voting booth.</p>
+    <div class="booth-grid">
+      <div>
+        <div class="camera" id="camera">
+          <video id="video" autoplay playsinline muted></video>
+          <div class="camera-guide"></div>
+          <div class="camera-empty" id="cameraEmpty"><div>{{ icon('camera') }}<p style="margin-top:10px" id="cameraText">Starting camera…</p></div></div>
+          <div class="prompt-banner" id="prompt" hidden></div>
+        </div>
+        <div style="margin-top:12px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:6px">
+            <span>Face samples</span><span id="counter">0 / {{ frames.reg }}</span>
+          </div>
+          <div class="progress" id="progress"><span id="progressBar"></span></div>
+        </div>
+      </div>
+      <div class="booth-side">
+        <button class="btn btn-primary btn-lg btn-block" id="captureBtn" type="button" disabled>{{ icon('scan') }}Start face check</button>
+        <button class="btn btn-secondary btn-block" id="cameraBtn" type="button" hidden>{{ icon('camera') }}Turn on camera</button>
+        <div class="alert" id="faceMsg" role="status" aria-live="polite"></div>
+        <ul class="tips">
+          <li>Be alone in front of the camera</li>
+          <li>Good, even light on your face</li>
+          <li>Remove sunglasses or masks</li>
+          {% if liveness %}<li><b>1 beep:</b> close your eyes and keep them closed<br><b>2 beeps:</b> open them</li>{% endif %}
+        </ul>
+        <button class="btn btn-ghost" id="backBtn" type="button">{{ icon('arrow-left') }}Back to details</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Step 3: done -->
+  <section class="card booth-card" id="stepDone" hidden>
+    <div class="done-view">
+      <div class="done-icon">{{ icon('check') }}</div>
+      <h1 id="doneTitle">Application submitted</h1>
+      <p class="lead" style="margin:6px 0 0" id="doneLabel">Your reference number is</p>
+      <div class="ref-big" id="refNumber"></div>
+      <p class="card-sub" style="max-width:460px;margin:0 auto 16px" id="doneText">Write this down. The election officer will review your application. You can check the status any time with this number and your date of birth.</p>
+      {% if officer %}
+      <a class="btn btn-primary btn-lg" href="{{ url_for('registration.self_register_page') }}">Register next voter</a>
+      <a class="btn btn-secondary btn-lg" href="{{ url_for('registration.registrations_page') }}">View registrations</a>
+      {% else %}
+      <a class="btn btn-primary btn-lg" href="{{ url_for('registration.status_page') }}">Check status</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <p class="footer-note">Classroom demonstration · Use made-up ID numbers only · Not for real elections</p>
+</main>
+
+<script>
+const FRAMES = {{ frames|tojson }};
+const LIVENESS = {{ 'true' if liveness else 'false' }};
+const $ = id => document.getElementById(id);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let stream = null, idCardData = null, details = null;
+
+// ---- Verhoeff (same algorithm the server and UIDAI use for Aadhaar) ----
+const D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],
+           [5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
+const P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
+           [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+const INV = [0,4,3,2,1,5,6,7,8,9];
+const verhoeffOk = n => [...n].reverse().reduce((c, d, i) => D[c][P[i % 8][+d]], 0) === 0;
+const verhoeffDigit = n => INV[[...n].reverse().reduce((c, d, i) => D[c][P[(i + 1) % 8][+d]], 0)];
+
+const idType = () => document.querySelector('input[name="idType"]:checked').value;
+const cleanId = v => v.replace(/[\s-]/g, "").toUpperCase();
+function idProblem(type, n) {
+  if (!n) return "Enter your ID number.";
+  if (type === "epic") return /^[A-Z]{3}[0-9]{7}$/.test(n) ? "" : "Voter ID must be 3 letters followed by 7 digits, e.g. ABC1234567.";
+  if (!/^[2-9][0-9]{11}$/.test(n)) return "Aadhaar must be 12 digits and can't start with 0 or 1.";
+  return verhoeffOk(n) ? "" : "This Aadhaar number isn't valid (checksum failed). Check for typing mistakes.";
+}
+function updateIdLabels() {
+  const epic = idType() === "epic";
+  $("idLabel").textContent = epic ? "Voter ID (EPIC) number" : "Aadhaar number";
+  $("idNumber").placeholder = epic ? "ABC1234567" : "12 digits";
+  $("idHint").textContent = epic ? "3 letters + 7 digits, as printed on your Voter ID card."
+                                 : "12 digits. Only the last 4 digits are kept; the full number is never stored.";
+}
+document.querySelectorAll('input[name="idType"]').forEach(r => r.addEventListener("change", () => { updateIdLabels(); fieldError("idNumber", ""); }));
+updateIdLabels();
+
+$("demoId").addEventListener("click", () => {
+  const rnd = n => Math.floor(Math.random() * n);
+  let value;
+  if (idType() === "epic") {
+    value = Array.from({ length: 3 }, () => String.fromCharCode(65 + rnd(26))).join("") +
+            Array.from({ length: 7 }, () => rnd(10)).join("");
+  } else {
+    const base = String(2 + rnd(8)) + Array.from({ length: 10 }, () => rnd(10)).join("");
+    value = base + verhoeffDigit(base);
+    value = value.replace(/(\d{4})(\d{4})(\d{4})/, "$1 $2 $3");
+  }
+  $("idNumber").value = value;
+  fieldError("idNumber", "");
+});
+
+// ---- ID card upload (resized in the browser before upload) ----
+$("idCard").addEventListener("change", () => {
+  const file = $("idCard").files[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) { fieldError("idCard", "Choose an image file."); return; }
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    idCardData = canvas.toDataURL("image/jpeg", 0.85);
+    $("idPreview").src = idCardData;
+    $("idPreview").hidden = false;
+    $("uploadEmpty").hidden = true;
+    fieldError("idCard", Math.min(canvas.width, canvas.height) < 200 ? "This photo is too small — take a closer photo." : "");
+    URL.revokeObjectURL(img.src);
+  };
+  img.onerror = () => fieldError("idCard", "Couldn't read that image.");
+  img.src = URL.createObjectURL(file);
+});
+
+// ---- Validation ----
+function fieldError(field, text) {
+  const el = document.querySelector(`[data-error="${field}"]`);
+  if (el) el.textContent = text || "";
+  const input = $(field);
+  if (input && input.classList) input.classList.toggle("invalid", !!text);
+  return !text;
+}
+function ageFrom(dob) {
+  const d = new Date(dob), t = new Date();
+  return t.getFullYear() - d.getFullYear() - ((t.getMonth() < d.getMonth() || (t.getMonth() === d.getMonth() && t.getDate() < d.getDate())) ? 1 : 0);
+}
+function collect() {
+  const data = {
+    full_name: $("fullName").value.trim().replace(/\s+/g, " "),
+    dob: $("dob").value, gender: $("gender").value, id_type: idType(),
+    id_number: cleanId($("idNumber").value), mobile: $("mobile").value.trim(), consent: $("consent").checked,
+  };
+  let ok = true;
+  ok &= fieldError("fullName", data.full_name.length >= 2 ? "" : "Enter your full name.");
+  ok &= fieldError("dob", !data.dob ? "Enter your date of birth." : ageFrom(data.dob) < {{ min_age }} ? "You must be {{ min_age }} or older to register." : "");
+  ok &= fieldError("gender", data.gender ? "" : "Choose an option.");
+  ok &= fieldError("idNumber", idProblem(data.id_type, data.id_number));
+  ok &= fieldError("idCard", idCardData ? "" : "Upload a photo of your ID card.");
+  const mobile = data.mobile.replace(/[\s-]/g, "").replace(/^\+91/, "");
+  ok &= fieldError("mobile", !mobile || /^[6-9][0-9]{9}$/.test(mobile) ? "" : "10 digits starting with 6-9, or leave empty.");
+  ok &= fieldError("consent", data.consent ? "" : "Please agree to continue.");
+  return ok ? data : null;
+}
+
+function goTo(step) {
+  ["stepDetails", "stepFace", "stepDone"].forEach((id, i) => { $(id).hidden = i !== step; });
+  document.querySelectorAll("#steps li").forEach((li, i) => { li.className = i < step ? "done" : i === step ? "active" : ""; });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+$("stepDetails").addEventListener("submit", event => {
+  event.preventDefault();
+  details = collect();
+  if (!details) { const bad = document.querySelector(".invalid, .field-error:not(:empty)"); if (bad) bad.scrollIntoView({ block: "center" }); return; }
+  goTo(1);
+  if (!stream) turnOnCamera();
+});
+$("backBtn").addEventListener("click", () => goTo(0));
+
+// ---- Camera + capture ----
+async function turnOnCamera() {
+  try {
+    stream = await startCamera(video);
+    $("cameraEmpty").hidden = true; $("cameraBtn").hidden = true; $("captureBtn").disabled = false;
+    setStatus($("faceMsg"), "");
+  } catch (error) {
+    $("cameraText").textContent = "Camera is off";
+    $("cameraBtn").hidden = false;
+    setStatus($("faceMsg"), cameraErrorText(error), "error");
+  }
+}
+const video = $("video");
+$("cameraBtn").addEventListener("click", turnOnCamera);
+
+function prompt(text, kind = "") {
+  $("prompt").hidden = !text;
+  $("prompt").className = "prompt-banner " + kind;
+  $("prompt").textContent = text || "";
+  if (text) speak(text);
+}
+function setProgress(n) {
+  $("counter").textContent = n + " / " + FRAMES.reg;
+  $("progressBar").style.width = (n / FRAMES.reg * 100) + "%";
+  $("progress").classList.toggle("done", n === FRAMES.reg);
+}
+
+$("captureBtn").addEventListener("click", async () => {
+  unlockAudio();
+  $("captureBtn").disabled = true; $("backBtn").disabled = true;
+  setStatus($("faceMsg"), "");
+  $("camera").classList.add("scanning");
+  const body = Object.assign({}, details, { id_card: idCardData });
+
+  prompt("Look at the camera and turn your head slightly");
+  body.frames = await captureFrames(video, FRAMES.reg, 120, setProgress, 480, 0.75);
+  if (LIVENESS) {
+    prompt("Now look straight at the camera");
+    await wait(900);
+    body.steady = await captureFrames(video, FRAMES.steady, 170, null, 480, 0.75);
+    // One beep = close your eyes. Two beeps = open them.
+    beep(1, 660);
+    prompt("Close your eyes", "closed");
+    await wait(900);
+    body.closed = await captureFrames(video, FRAMES.closed, 190, null, 480, 0.75);
+    beep(2, 990);
+    prompt("Open your eyes", "open");
+    await wait(1100);   // people open their eyes a little late
+    body.reopened = await captureFrames(video, FRAMES.reopen, 170, null, 480, 0.75);
+  }
+  prompt("");
+  $("camera").classList.remove("scanning");
+  setStatus($("faceMsg"), "Checking your details and face… this takes a few seconds.");
+
+  const OFFICER = {{ 'true' if officer else 'false' }};
+  const { ok, data } = await postJSON("{{ url_for('registration.self_register_api') }}", body);
+  $("captureBtn").disabled = false; $("backBtn").disabled = false;
+  if (ok) {
+    stopCamera(stream); stream = null;
+    $("refNumber").textContent = data.ref;
+    if (data.status === "approved") {
+      $("doneTitle").textContent = "You're registered!";
+      $("doneLabel").textContent = "All checks passed. Your voter ID is";
+      $("doneText").textContent = OFFICER
+        ? "Approved automatically. They can now vote at the booth by scanning their face."
+        : "You can now vote at the polling booth by scanning your face. Keep this number for your records.";
+      speak("You are registered. You can now vote.");
+    } else {
+      $("doneTitle").textContent = "Application submitted";
+      $("doneText").textContent = OFFICER
+        ? "Some checks need a human look. Review it under Registrations before this voter can vote."
+        : "Write this down. The election officer needs to check a few things before approving you. "
+          + "You can check the status any time with this number and your date of birth.";
+    }
+    goTo(2);
+    return;
+  }
+  setProgress(0);
+  if (data.field) {             // a problem with the details: go back to that field
+    goTo(0);
+    fieldError(data.field, data.error);
+    const el = $(data.field); if (el) el.scrollIntoView({ block: "center" });
+    return;
+  }
+  setStatus($("faceMsg"), data.error || "Something went wrong. Please try again.", "error");
+});
+
+window.addEventListener("beforeunload", () => stopCamera(stream));
+</script>
+{% endblock %}

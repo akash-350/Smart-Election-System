@@ -1,0 +1,264 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Dashboard{% endblock %}
+{% block head %}
+<script src="{{ asset('vendor/chart.umd.min.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 id="electionName">{{ current.name }}</h1>
+    <p><span id="stateBadge">{{ state_badge(current.state) }}</span> · <span id="updated">Loading…</span></p>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" id="refresh" type="button">{{ icon('refresh') }}Refresh</button>
+    <a class="btn btn-secondary" href="{{ url_for('live_screen') }}" target="_blank" rel="noopener">{{ icon('activity') }}Live screen</a>
+    <a class="btn btn-primary" id="primaryAction" href="{{ url_for('election_page') }}">{{ icon('flag') }}<span>Manage election</span></a>
+  </div>
+</div>
+
+<div id="loadError" class="alert error" role="alert" style="margin-bottom:16px"></div>
+
+<!-- KPIs -->
+<section class="grid stats" aria-label="Key figures">
+  <div class="card stat">
+    <div class="stat-icon">{{ icon('users') }}</div>
+    <div><div class="stat-label">Registered voters</div><div class="stat-value" id="kRegistered">–</div>
+      <div class="stat-foot" id="kRegisteredFoot">&nbsp;</div></div>
+  </div>
+  <div class="card stat">
+    <div class="stat-icon green">{{ icon('check-circle') }}</div>
+    <div><div class="stat-label">Votes cast</div><div class="stat-value" id="kVoted">–</div>
+      <div class="stat-foot" id="kVotedFoot">&nbsp;</div></div>
+  </div>
+  <div class="card stat">
+    <div class="stat-icon saffron">{{ icon('percent') }}</div>
+    <div style="flex:1"><div class="stat-label">Turnout</div><div class="stat-value" id="kTurnout">–</div>
+      <div class="stat-meter"><span id="kTurnoutBar" style="width:0"></span></div></div>
+  </div>
+  <a class="card stat stat-link" href="{{ url_for('registration.registrations_page') }}">
+    <div class="stat-icon slate">{{ icon('inbox') }}</div>
+    <div><div class="stat-label">Needs your review</div><div class="stat-value" id="kPending">–</div>
+      <div class="stat-foot" id="kPendingFoot">&nbsp;</div></div>
+  </a>
+</section>
+
+<!-- Turnout -->
+<section class="grid two-col" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-head">
+      <div><div class="card-title">Votes over time</div><div class="card-sub">Cumulative ballots since voting opened</div></div>
+    </div>
+    <div class="chartbox"><canvas id="timelineChart" role="img" aria-label="Votes over time"></canvas>
+      <p class="chart-empty" id="timelineEmpty" hidden>No votes yet. The line grows as people vote.</p></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Turnout</div>
+    <div class="card-sub">Share of registered voters who have voted</div>
+    <div class="gauge"><canvas id="gaugeChart" role="img" aria-label="Turnout gauge"></canvas>
+      <div class="gauge-label"><b id="gaugeValue">0%</b><span id="gaugeSub">0 of 0</span></div></div>
+  </div>
+</section>
+
+<!-- Results (closed) / sealed (open) / setup -->
+<section class="grid two-col" id="resultsSection" hidden style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-title">Votes by candidate</div>
+    <div class="card-sub">Final count</div>
+    <div class="chartbox"><canvas id="resultsChart" role="img" aria-label="Votes by candidate"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Results</div>
+    <div class="card-sub">Share of all votes cast</div>
+    <div id="candidateResults"></div>
+    <a class="btn btn-primary btn-block" style="margin-top:14px" href="{{ url_for('results_page') }}">{{ icon('trophy') }}Declare results</a>
+  </div>
+</section>
+<section class="card sealed-strip" id="sealedSection" hidden>
+  <span class="sealed-icon small">{{ icon('lock') }}</span>
+  <div><b>Results are sealed</b><span>Vote counts are revealed only after voting closes, so nobody can see partial results.</span></div>
+</section>
+<section class="card sealed-strip" id="setupSection" hidden>
+  <span class="sealed-icon small">{{ icon('flag') }}</span>
+  <div><b>Voting hasn't opened yet</b><span id="setupCandidates"></span></div>
+  <a class="btn btn-primary" href="{{ url_for('election_page') }}">Set up &amp; open</a>
+</section>
+
+<!-- Registrations -->
+<section class="grid two-col" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-title">Registrations, last 14 days</div>
+    <div class="card-sub">How each application was decided</div>
+    <div class="chartbox"><canvas id="regChart" role="img" aria-label="Registrations per day"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">From registration to vote</div>
+    <div class="card-sub">Where people are in the process</div>
+    <div id="funnel" class="funnel"></div>
+  </div>
+</section>
+
+<!-- Voters -->
+<section class="grid two-equal">
+  <div class="card">
+    <div class="card-title">Voters by age</div>
+    <div class="card-sub">Approved self-registered voters</div>
+    <div class="chartbox short"><canvas id="ageChart" role="img" aria-label="Voters by age group"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Voters by gender</div>
+    <div class="card-sub">Approved self-registered voters</div>
+    <div class="chartbox short"><canvas id="genderChart" role="img" aria-label="Voters by gender"></canvas></div>
+  </div>
+</section>
+
+<p class="footer-note">Academic project · Smart Election System · Fictional demo data</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const BADGES = {
+  open: '<span class="badge green live-dot">Voting open</span>',
+  closed: '<span class="badge slate">Closed</span>',
+  setup: '<span class="badge saffron">Setup</span>',
+};
+const C = { navy: "#1E3A8A", green: "#15803D", saffron: "#F59E0B", teal: "#0E7490", slate: "#94A3B8",
+            red: "#DC2626", grid: "#EEF2F7", ink: "#334155", muted: "#64748B" };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const charts = {};
+
+function chart(id, config) {
+  if (typeof Chart === "undefined") return;
+  if (charts[id]) {                      // update in place: smooth, no flicker
+    charts[id].data.labels = config.data.labels;
+    config.data.datasets.forEach((d, i) => Object.assign(charts[id].data.datasets[i] || {}, d));
+    charts[id].update();
+    return;
+  }
+  charts[id] = new Chart($(id), config);
+}
+function setupDefaults() {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.color = C.muted;
+  Chart.defaults.plugins.legend.labels.boxWidth = 10;
+  Chart.defaults.plugins.legend.labels.boxHeight = 10;
+  Chart.defaults.plugins.tooltip.backgroundColor = "#0F172A";
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.maintainAspectRatio = false;
+}
+const axes = (stacked = false) => ({
+  x: { stacked, grid: { display: false }, ticks: { color: C.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
+  y: { stacked, beginAtZero: true, ticks: { precision: 0, color: C.muted }, grid: { color: C.grid }, border: { display: false } },
+});
+
+function renderTurnout(t) {
+  $("kRegistered").textContent = t.registered;
+  $("kVoted").textContent = t.voted;
+  $("kTurnout").textContent = t.participation + "%";
+  $("kTurnoutBar").style.width = t.participation + "%";
+  $("kVotedFoot").textContent = t.remaining + " still to vote";
+  $("gaugeValue").textContent = t.participation + "%";
+  $("gaugeSub").textContent = `${t.voted} of ${t.registered} voters`;
+  chart("gaugeChart", {
+    type: "doughnut",
+    data: { labels: ["Voted", "Not yet"], datasets: [{ data: [t.voted, Math.max(t.registered - t.voted, 0) || (t.voted ? 0 : 1)],
+      backgroundColor: [C.green, "#E8EDF3"], borderWidth: 0 }] },
+    options: { rotation: -90, circumference: 180, cutout: "74%", plugins: { legend: { display: false }, tooltip: { enabled: t.registered > 0 } } },
+  });
+}
+
+function renderTimeline(points) {
+  $("timelineEmpty").hidden = points.length > 0 && points[points.length - 1].votes > 0;
+  chart("timelineChart", {
+    type: "line",
+    data: { labels: points.map(p => p.t), datasets: [{ label: "Votes", data: points.map(p => p.votes),
+      borderColor: C.navy, backgroundColor: "rgba(30,58,138,.10)", fill: true, tension: .35, pointRadius: 0, borderWidth: 2.5 }] },
+    options: { plugins: { legend: { display: false } }, scales: axes(), interaction: { intersect: false, mode: "index" } },
+  });
+}
+
+function renderResults(r) {
+  const leaders = new Set(r.leaders);
+  const colours = r.labels.map((n, i) => candidateColour(i, n));
+  $("candidateResults").innerHTML = r.labels.map((name, i) => `
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-name"><span class="swatch" style="background:${colours[i]}"></span>${esc(name)}
+          ${leaders.has(name) ? `<span class="badge saffron plain">${r.tie ? "Tied" : "Winner"}</span>` : ""}</span>
+        <span class="result-figs"><b>${r.values[i]}</b> ${r.values[i] === 1 ? "vote" : "votes"} · ${r.percentages[i]}%</span>
+      </div>
+      <div class="track"><span style="width:${r.percentages[i]}%;background:${colours[i]}"></span></div>
+    </div>`).join("");
+  chart("resultsChart", {
+    type: "bar",
+    data: { labels: r.labels, datasets: [{ label: "Votes", data: r.values, backgroundColor: colours, borderRadius: 8, maxBarThickness: 64 }] },
+    options: { plugins: { legend: { display: false } }, scales: axes() },
+  });
+}
+
+function renderStats(s) {
+  const f = s.funnel;
+  $("kRegisteredFoot").textContent = `${f.auto_approved} approved automatically`;
+  chart("regChart", {
+    type: "bar",
+    data: { labels: s.days, datasets: [
+      { label: "Auto-approved", data: s.series.auto, backgroundColor: C.green, borderRadius: 4 },
+      { label: "Approved by officer", data: s.series.manual, backgroundColor: C.navy, borderRadius: 4 },
+      { label: "Waiting", data: s.series.pending, backgroundColor: C.saffron, borderRadius: 4 },
+      { label: "Rejected", data: s.series.rejected, backgroundColor: C.slate, borderRadius: 4 },
+    ] },
+    options: { plugins: { legend: { position: "bottom" } }, scales: axes(true) },
+  });
+  const steps = [["Applications", f.applications, C.slate], ["Approved", f.approved, C.teal],
+                 ["On voter list", f.voters, C.navy], ["Voted in this election", f.voted, C.green]];
+  const top = Math.max(...steps.map(x => x[1]), 1);
+  $("funnel").innerHTML = steps.map(([label, value, colour]) => `
+    <div class="funnel-row"><span>${label}</span><b>${value}</b>
+      <div class="track"><span style="width:${value / top * 100}%;background:${colour}"></span></div></div>`).join("");
+  chart("ageChart", {
+    type: "bar",
+    data: { labels: Object.keys(s.ages), datasets: [{ label: "Voters", data: Object.values(s.ages), backgroundColor: C.teal, borderRadius: 6, maxBarThickness: 40 }] },
+    options: { plugins: { legend: { display: false } }, scales: axes() },
+  });
+  const genders = Object.keys(s.genders).length ? s.genders : { "No data yet": 1 };
+  chart("genderChart", {
+    type: "doughnut",
+    data: { labels: Object.keys(genders), datasets: [{ data: Object.values(genders),
+      backgroundColor: Object.keys(s.genders).length ? [C.navy, C.saffron, C.teal, C.slate] : ["#E8EDF3"], borderWidth: 0 }] },
+    options: { cutout: "62%", plugins: { legend: { position: "bottom" } } },
+  });
+}
+
+async function load() {
+  try {
+    const [res, stats] = await Promise.all([fetch("{{ url_for('results_api') }}"), fetch("{{ url_for('stats_api') }}")]);
+    if (res.status === 401 || stats.status === 401) { window.location = "{{ url_for('login') }}"; return; }
+    if (!res.ok || !stats.ok) throw new Error();
+    const data = await res.json(), s = await stats.json();
+    const e = data.election;
+    $("electionName").textContent = e.name;
+    $("stateBadge").innerHTML = BADGES[e.state];
+    renderTurnout(data.turnout);
+    renderTimeline(s.timeline);
+    renderStats(s);
+    $("kPending").textContent = {{ pending_count }};
+    $("kPendingFoot").textContent = {{ pending_count }} ? "applications waiting" : "nothing waiting";
+    $("resultsSection").hidden = e.state !== "closed";
+    $("sealedSection").hidden = e.state !== "open";
+    $("setupSection").hidden = e.state !== "setup";
+    if (e.state === "closed") renderResults(data.results);
+    if (e.state === "setup") $("setupCandidates").textContent = "Candidates: " + data.candidates.join(", ");
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setStatus($("loadError"), "");
+  } catch (_) {
+    setStatus($("loadError"), "Could not load data. Retrying automatically…", "error");
+  }
+}
+
+$("refresh").addEventListener("click", load);
+window.addEventListener("DOMContentLoaded", () => {
+  if (typeof Chart !== "undefined") setupDefaults();
+  load();
+  setInterval(load, 15000);
+});
+</script>
+{% endblock %}

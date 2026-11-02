@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}{{ a.full_name }} · Registration{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a href="{{ url_for('registration.registrations_page') }}" style="font-size:14px;text-decoration:none">← All registrations</a>
+    <h1 style="margin-top:6px">{{ a.full_name }}</h1>
+    <p><span class="mono">{{ a.ref }}</span> · submitted {{ a.submitted_at[:16] }} ·
+      {% if a.status == 'pending' %}<span class="badge saffron plain">Waiting for review</span>
+      {% elif a.status == 'approved' %}<span class="badge green">Approved</span>
+      {% elif a.status == 'rejected' %}<span class="badge red">Rejected</span>
+      {% else %}<span class="badge slate">Removed</span>{% endif %}</p>
+  </div>
+  {% if a.status == 'pending' %}
+  <div class="page-actions">
+    <button class="btn btn-danger" id="rejectBtn" type="button">{{ icon('x-circle') }}Reject</button>
+    <button class="btn btn-success" id="approveBtn" type="button">{{ icon('check') }}Approve voter</button>
+  </div>
+  {% endif %}
+</div>
+
+<div class="alert" id="msg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+
+<div class="grid two-col" style="align-items:start">
+  <div class="grid" style="gap:16px">
+    <section class="card">
+      <div class="card-title">Compare the face with the ID card</div>
+      <div class="card-sub">Check that the live photo and the photo on the ID card are the same person, and that the name and number match.</div>
+      <div class="evidence">
+        <figure>
+          <img src="{{ url_for('registration.registration_photo', ref=a.ref) }}" alt="Live face photo" onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'card-sub',textContent:'Photo deleted'}))">
+          <figcaption>Live photo from the camera</figcaption>
+        </figure>
+        <figure>
+          {% if has_id_card %}
+          <a href="{{ url_for('registration.registration_id_card', ref=a.ref) }}" target="_blank" rel="noopener">
+            <img src="{{ url_for('registration.registration_id_card', ref=a.ref) }}" alt="Uploaded ID card"></a>
+          <figcaption>Uploaded ID card (click to enlarge)</figcaption>
+          {% else %}
+          <p class="card-sub">ID card image {{ 'deleted after rejection' if a.status == 'rejected' else 'not available' }}.</p>
+          {% endif %}
+        </figure>
+      </div>
+    </section>
+
+    {% if a.duplicate_of %}
+    <section class="card" style="border-color:var(--danger-line)">
+      <div class="card-title" style="color:var(--danger-text)">Possible duplicate person</div>
+      <div class="card-sub">This face closely matches <b>{{ duplicate_name or a.duplicate_of }}</b> ({{ a.duplicate_of }}). One person may only register once. Compare carefully.</div>
+      <div class="evidence">
+        <figure><img src="{{ url_for('registration.registration_photo', ref=a.ref) }}" alt=""><figcaption>This applicant</figcaption></figure>
+        <figure><img src="{{ url_for('registration.registration_photo', ref=a.duplicate_of) }}" alt="" style="max-width:240px"><figcaption>Existing: {{ a.duplicate_of }}</figcaption></figure>
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <div class="grid" style="gap:16px">
+    <section class="card">
+      <div class="card-title">Details</div>
+      <dl class="facts" style="margin-top:12px">
+        <dt>Full name</dt><dd>{{ a.full_name }}</dd>
+        <dt>Date of birth</dt><dd>{{ a.dob }} (age {{ a.age }})</dd>
+        <dt>Gender</dt><dd>{{ a.gender }}</dd>
+        <dt>ID type</dt><dd>{{ id_types[a.id_type] }}</dd>
+        <dt>ID number</dt><dd class="mono">{{ a.id_masked }}</dd>
+        <dt>Mobile</dt><dd>{{ a.mobile or '—' }}</dd>
+        {% if a.reviewed_at %}<dt>Decided</dt><dd>{{ a.reviewed_at[:16] }} by {{ 'the system (all checks passed)' if a.reviewed_by == auto_approver else a.reviewed_by }}</dd>{% endif %}
+        {% if a.reject_reason %}<dt>Reason</dt><dd>{{ a.reject_reason }}</dd>{% endif %}
+      </dl>
+      <p class="lock-note" style="margin-top:14px">{{ icon('lock') }}The full ID number is never stored, only this masked copy and a secure fingerprint used to block duplicates.</p>
+    </section>
+
+    <section class="card">
+      <div class="card-title">Automatic checks</div>
+      <div class="card-sub">{{ 'All checks passed.' if not a.flags else a.flags ~ ' warning' ~ ('' if a.flags == 1 else 's') ~ ' — review carefully.' }}</div>
+      <div class="checks">
+        {% for c in a.checks %}
+        <div class="check-row {{ 'ok' if c.status == 'pass' else c.status }}">
+          {{ icon('check-circle' if c.status == 'pass' else ('alert' if c.status == 'warn' else 'clock')) }}
+          <span>{{ c.label }}<small>{{ c.detail }}</small></span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="card-sub" style="margin:14px 0 0">Not checked: whether the ID number really exists in the UIDAI / Election Commission database (that needs official access).</p>
+    </section>
+  </div>
+</div>
+
+{% if a.status == 'pending' %}
+<script>
+const msg = document.getElementById("msg");
+async function decide(url, body, done) {
+  const { ok, data } = await postJSON(url, body);
+  if (!ok) { setStatus(msg, data.error || "Something went wrong.", "error"); return; }
+  sessionStorage.setItem("flash", done);
+  location.reload();
+}
+document.getElementById("approveBtn").addEventListener("click", async () => {
+  const ok = await confirmDialog({ title: {{ ("Approve " ~ a.full_name ~ "?")|tojson }}, confirmLabel: "Approve voter",
+    message: "{{ 'There are warnings on this application. ' if a.flags }}They will be added to the voter list and can vote at the booth." });
+  if (ok) decide("{{ url_for('registration.approve', ref=a.ref) }}", {}, "Approved. {{ a.ref }} is now on the voter list.");
+});
+document.getElementById("rejectBtn").addEventListener("click", async () => {
+  const reason = await confirmDialog({ title: "Reject this application?", danger: true, confirmLabel: "Reject",
+    message: "Give a short reason. The applicant will see it when they check their status. Their face and ID card images will be deleted.",
+    input: true, placeholder: "e.g. Photo doesn't match the ID card" });
+  if (reason) decide("{{ url_for('registration.reject', ref=a.ref) }}", { reason }, "Application rejected.");
+});
+</script>
+{% endif %}
+<script>
+const f = sessionStorage.getItem("flash");
+if (f) { setStatus(document.getElementById("msg"), f, "success"); sessionStorage.removeItem("flash"); }
+</script>
+{% endblock %}

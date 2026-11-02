@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Voter list{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Voter list</h1>
+    <p>Status for <b>{{ current.name }}</b>. Ballot choices are secret and never shown.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="{{ url_for('register_voter') }}">{{ icon('user-plus') }}Register voter</a>
+  </div>
+</div>
+
+<div class="alert" id="msg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+
+<div class="card">
+  <div class="toolbar">
+    <div class="search">
+      {{ icon('search') }}
+      <input class="input" id="search" type="search" placeholder="Search voter ID" aria-label="Search voter ID">
+    </div>
+    <div class="chips">
+      <span class="badge blue plain">{{ rows|length }} registered</span>
+      <span class="badge green">{{ voted_count }} voted</span>
+      <span class="badge saffron">{{ rows|length - voted_count }} not voted</span>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Voter</th><th>This election</th><th style="text-align:right">Actions</th></tr></thead>
+      <tbody id="rows">
+        {% for v in rows %}
+        <tr data-id="{{ v.voter_id|lower }}">
+          <td>
+            <div class="voter-cell">
+              <img class="thumb" src="{{ url_for('voter_photo', voter_id=v.voter_id) }}" alt="" loading="lazy"
+                   onerror="this.style.visibility='hidden'">
+              <span class="mono"><b>{{ v.voter_id }}</b><small>Registered {{ v.registered_at[:10] }}</small></span>
+            </div>
+          </td>
+          <td>{% if v.voted_now %}<span class="badge green">Voted</span>{% else %}<span class="badge saffron">Not voted</span>{% endif %}</td>
+          <td class="td-actions">
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('register_voter', retake=v.voter_id) }}" title="Re-capture face">{{ icon('camera') }}<span>Retake face</span></a>
+            {% if v.ever_voted %}
+            <button class="btn btn-ghost btn-sm" type="button" disabled title="Voters who have voted are kept permanently">{{ icon('lock') }}<span>Kept</span></button>
+            {% else %}
+            <button class="btn btn-ghost btn-sm" type="button" data-delete="{{ v.voter_id }}">{{ icon('trash') }}<span>Remove</span></button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">No voters registered yet. <a href="{{ url_for('register_voter') }}">Register the first voter</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="empty" id="noMatch" hidden>No voter IDs match your search.</p>
+  </div>
+  <p class="lock-note" style="margin-top:14px">{{ icon('lock') }}Voters who have voted in any election can't be removed, so turnout records always add up.</p>
+</div>
+
+<script>
+const msg = document.getElementById("msg");
+document.getElementById("search").addEventListener("input", event => {
+  const query = event.target.value.trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll("#rows tr[data-id]").forEach(row => {
+    const match = row.dataset.id.includes(query);
+    row.hidden = !match;
+    if (match) shown++;
+  });
+  document.getElementById("noMatch").hidden = shown > 0 || !document.querySelector("#rows tr[data-id]");
+});
+
+document.querySelectorAll("[data-delete]").forEach(button => button.addEventListener("click", async () => {
+  const id = button.dataset.delete;
+  const ok = await confirmDialog({ title: `Remove voter ${id}?`, danger: true, confirmLabel: "Remove voter",
+    message: "Their face data and photo will be deleted. This voter has never voted, so no votes are affected." });
+  if (!ok) return;
+  const { ok: done, data } = await postJSON(`/api/voters/${encodeURIComponent(id)}/delete`, {});
+  if (done) { button.closest("tr").remove(); setStatus(msg, `Removed ${id}.`, "success"); }
+  else setStatus(msg, data.error || "Could not remove voter.", "error");
+}));
+</script>
+{% endblock %}

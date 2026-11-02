@@ -1,0 +1,52 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Audit log</h1>
+    <p>Every important action, in order. This log is append-only — entries can't be edited or deleted.</p>
+  </div>
+</div>
+
+<section class="grid two-col" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-title">Integrity verification</div>
+    <div class="card-sub">Each entry contains a hash of the previous one. Changing any record breaks the chain.</div>
+    <div class="checks">
+      {% for label, check in [("Audit log", audit_check), ("Ballot box", ballot_check)] %}
+      <div class="check-row {{ 'ok' if check[0] else 'bad' }}">
+        {{ icon('check-circle' if check[0] else 'x-circle') }}
+        <span>{{ label }}: {{ 'verified' if check[0] else 'TAMPERING DETECTED' }}<small>{{ check[1] }}</small></span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Privacy</div>
+    <div class="card-sub" style="margin-bottom:0">Ballots are logged as “Ballot cast” without a voter ID, so the log can't reveal who voted for whom. Failed face scans are logged with the reason only.</div>
+  </div>
+</section>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Time</th><th>By</th><th>Event</th><th>Details</th><th>Hash</th></tr></thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td class="mono" style="color:var(--muted)">{{ e.log_id }}</td>
+          <td class="mono" style="white-space:nowrap">{{ e.created_at }}</td>
+          <td>{{ e.actor }}</td>
+          <td><b>{{ e.event }}</b></td>
+          <td>{{ e.details }}</td>
+          <td class="mono" style="color:var(--muted)" title="{{ e.hash }}">{{ e.hash[:10] }}…</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No events yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

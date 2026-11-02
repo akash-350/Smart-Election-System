@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Admin login{% endblock %}
+{% block body %}
+<main class="center-page">
+  <form class="card login-card" method="POST" novalidate>
+    <div class="brand">
+      <span class="brand-mark">{{ icon('ballot') }}</span>
+      <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Face-verified voting demo</span></span>
+    </div>
+    <h1>Admin sign in</h1>
+    <p>Sign in to manage voters, open the voting booth and view results.</p>
+
+    {% if error %}<div class="alert error" role="alert" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+
+    <div class="field">
+      <label for="username">Username</label>
+      <input class="input" id="username" name="username" autocomplete="username" required autofocus value="{{ username or '' }}">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn btn-primary btn-lg btn-block" type="submit">Sign in</button>
+    <div style="display:grid;gap:8px;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
+      <span class="card-sub" style="margin:0;text-align:center">Are you a voter?</span>
+      <a class="btn btn-secondary btn-block" href="{{ url_for('registration.self_register_page') }}">{{ icon('user-plus') }}Register to vote</a>
+      <a class="btn btn-ghost btn-block" href="{{ url_for('registration.status_page') }}">Check registration status</a>
+    </div>
+    <p class="fineprint">Academic classroom demonstration · Not for real elections</p>
+  </form>
+</main>
+{% endblock %}

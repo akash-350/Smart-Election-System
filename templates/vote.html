@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Voting booth{% endblock %}
+{% block body %}
+<header class="booth-top">
+  <div class="brand">
+    <span class="brand-mark">{{ icon('ballot') }}</span>
+    <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">{{ election.name }}</span></span>
+  </div>
+  <div class="booth-tools">
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="hi" aria-pressed="false" lang="hi">हिंदी</button>
+      <button type="button" data-lang="kn" aria-pressed="false" lang="kn">ಕನ್ನಡ</button>
+    </div>
+    <button class="icon-btn" type="button" id="voiceBtn" aria-pressed="true" title="Voice prompts">{{ icon('volume') }}<span>Voice</span></button>
+    <a class="btn btn-ghost" href="{{ url_for('dashboard') }}" id="exitBtn">{{ icon('arrow-left') }}<span data-t="exit">Exit booth</span></a>
+  </div>
+</header>
+
+<main class="booth">
+{% if election.state != 'open' %}
+  <section class="card booth-card">
+    <div class="sealed">
+      <div class="sealed-icon">{{ icon('lock') }}</div>
+      <h1 data-t="{{ 'closedTitle' if election.state == 'closed' else 'notOpenTitle' }}">{{ 'Voting has closed' if election.state == 'closed' else 'Voting is not open' }}</h1>
+      <p class="lead" data-t="{{ 'closedText' if election.state == 'closed' else 'notOpenText' }}" style="margin:8px auto 0">
+        {{ 'Thank you. No more votes are being accepted.' if election.state == 'closed' else 'Please wait for the election officer to open voting.' }}</p>
+    </div>
+  </section>
+{% else %}
+  <ol class="steps" id="steps">
+    <li class="active" data-t="stepScan">Scan face</li>
+    <li data-t="stepConfirm">Confirm</li>
+    <li data-t="stepVote">Vote</li>
+    <li data-t="stepDone">Done</li>
+  </ol>
+
+  <!-- Step 1: scan -->
+  <section class="card booth-card" id="stepScan">
+    <h1 data-t="welcome">Welcome, voter</h1>
+    <p class="lead" data-t="leadScan">Look at the camera and press “Start face check” to verify your identity.</p>
+    <div class="booth-grid">
+      <div class="camera" id="camera">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="camera-guide"></div>
+        <div class="camera-empty" id="cameraEmpty">
+          <div>{{ icon('camera') }}<p style="margin-top:10px" id="cameraText" data-t="startingCamera">Starting camera…</p></div>
+        </div>
+        <div class="prompt-banner" id="prompt" hidden></div>
+      </div>
+      <div class="booth-side">
+        <button class="btn btn-primary btn-lg btn-block" id="scanBtn" type="button" disabled>{{ icon('scan') }}<span data-t="btnScan">Start face check</span></button>
+        <button class="btn btn-secondary btn-block" id="cameraBtn" type="button" hidden>{{ icon('camera') }}<span data-t="btnCamera">Turn on camera</span></button>
+        <div class="alert" id="scanMsg" role="status" aria-live="polite"></div>
+        <ul class="tips">
+          <li data-t="tip1">Only you should be in front of the camera</li>
+          <li data-t="tip2">Face the camera in good light</li>
+          {% if liveness %}<li data-t="tip3">Close your eyes at 1 beep, open them at 2 beeps</li>{% endif %}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Step 2: confirm -->
+  <section class="card booth-card" id="stepConfirm" hidden>
+    <h1 data-t="confirmTitle">Is this you?</h1>
+    <p class="lead" data-t="confirmLead">Check the voter ID below before continuing.</p>
+    <div class="identity">
+      <div class="avatar" id="idAvatar">?</div>
+      <div><small data-t="recognisedId">Recognised voter ID</small><div class="identity-id" id="idText"></div><small class="mono" id="idSub"></small></div>
+    </div>
+    <div class="alert" id="confirmMsg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-lg" id="confirmBtn" type="button">{{ icon('check') }}<span data-t="btnYes">Yes, that's me</span></button>
+      <button class="btn btn-secondary btn-lg" id="rescanBtn" type="button" data-t="btnRescan">Not me, scan again</button>
+    </div>
+  </section>
+
+  <!-- Step 3: ballot -->
+  <section class="card booth-card" id="stepBallot" hidden>
+    <h1 data-t="ballotTitle">Cast your vote</h1>
+    <p class="lead" data-t="ballotLead">Select one option, then press the button. Your vote is secret.</p>
+    <form id="ballotForm">
+      <fieldset style="border:0;padding:0;margin:0" aria-label="Candidates">
+        <div class="ballot">
+          {% for candidate in candidates %}
+          <label class="candidate">
+            <input type="radio" name="candidate" value="{{ candidate }}">
+            <span class="avatar" data-index="{{ loop.index0 }}" data-name="{{ candidate }}">{{ '✕' if candidate == nota else candidate[0]|upper }}</span>
+            <span>
+              <span class="candidate-name">{{ candidate }}</span><br>
+              <span class="candidate-sub" {% if candidate == nota %}data-t="notaSub"{% else %}data-option="{{ loop.index }}"{% endif %}>{{ 'None of the above' if candidate == nota else 'Option ' ~ loop.index }}</span>
+            </span>
+            <span class="check">{{ icon('check') }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div class="alert" id="ballotMsg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+      <button class="btn btn-success btn-lg btn-block" id="castBtn" type="submit" disabled>Select an option to vote</button>
+    </form>
+  </section>
+
+  <!-- Step 4: done -->
+  <section class="card booth-card" id="stepDone" hidden>
+    <div class="done-view">
+      <div class="done-icon">{{ icon('check') }}</div>
+      <h1 data-t="doneTitle">Thank you for voting!</h1>
+      <p class="lead" style="margin:6px 0 0" data-t="doneLead">Your vote has been recorded securely and secretly.</p>
+      <div class="receipt" id="receiptBox" hidden>
+        <small data-t="receiptLabel">Your receipt code</small>
+        <b class="mono" id="receiptCode"></b>
+        <span data-t="receiptNote">Write it down. The officer can confirm your vote was counted with this code. It never shows your choice.</span>
+      </div>
+      <p class="countdown" id="countdown"></p>
+      <button class="btn btn-primary btn-lg" id="nextBtn" type="button" style="margin-top:18px" data-t="nextVoter">Next voter</button>
+    </div>
+  </section>
+{% endif %}
+  <p class="footer-note">Classroom demonstration · Fictional demo IDs only · Not for real elections</p>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Translations. Hindi and Kannada should be checked by a native speaker.
+// ---------------------------------------------------------------------------
+const I18N = {
+  en: {
+    exit: "Exit booth", stepScan: "Scan face", stepConfirm: "Confirm", stepVote: "Vote", stepDone: "Done",
+    stepSignIn: "Sign in", stepFace: "Face check", home: "Home", backHome: "Back to home",
+    loginTitle: "Enter your details", loginLead: "Enter your Voter ID (for example SE-0001) and your date of birth.",
+    voterIdLabel: "Voter ID", dobLabel: "Date of birth", btnContinue: "Continue", welcomeName: n => `Hello, ${n}`,
+    receiptLabel: "Your receipt code", receiptNote: "Write it down. The officer can confirm your vote was counted with this code. It never shows your choice.",
+    welcome: "Welcome, voter", leadScan: "Look at the camera and press “Start face check” to verify your identity.",
+    btnScan: "Start face check", btnCamera: "Turn on camera", startingCamera: "Starting camera…", cameraOff: "Camera is off",
+    tip1: "Only you should be in front of the camera", tip2: "Face the camera in good light",
+    tip3: "Close your eyes at 1 beep, open them at 2 beeps",
+    look: "Look at the camera", closeEyes: "Close your eyes", openEyes: "Open your eyes", verifying: "Verifying identity…",
+    confirmTitle: "Is this you?", confirmLead: "Check the voter ID below before continuing.",
+    recognisedId: "Recognised voter ID", btnYes: "Yes, that's me", btnRescan: "Not me, scan again",
+    ballotTitle: "Cast your vote", ballotLead: "Select one option, then press the button. Your vote is secret.",
+    selectOption: "Select an option to vote", castFor: n => `Cast my vote for ${n}`, recording: "Recording vote…",
+    option: n => `Option ${n}`, notaSub: "None of the above",
+    doneTitle: "Thank you for voting!", doneLead: "Your vote has been recorded securely and secretly.",
+    countdown: n => `Booth resets for the next voter in ${n}s`, nextVoter: "Next voter",
+    notOpenTitle: "Voting is not open", notOpenText: "Please wait for the election officer to open voting.",
+    closedTitle: "Voting has closed", closedText: "Thank you. No more votes are being accepted.",
+    err: {
+      not_recognised: "Face not recognised as a registered voter.", no_face: "Show your face clearly to the camera.",
+      multiple_faces: "Only one person should be in front of the camera.", inconsistent: "Face match was inconsistent. Please try again.",
+      liveness_face: "Keep your face in view while closing your eyes.", liveness_closed: "We couldn't see your eyes close. Please try again.",
+      liveness_open: "Please open your eyes and look at the camera.", already_voted: "You have already voted in this election.",
+      not_registered: "This face is not on the voter list.", not_open: "Voting is not open.",
+      generic: "Something went wrong. Please try again.",
+      bad_login: "That Voter ID and date of birth don't match a registered voter.",
+      locked: "Too many failed face checks for this Voter ID. Please vote at the polling booth.",
+      no_face_data: "Face data for this voter isn't available. Please vote at the polling booth.",
+      rate_limited: "Too many attempts. Please wait 10 minutes.",
+    },
+  },
+  hi: {
+    exit: "बूथ से बाहर", stepScan: "चेहरा स्कैन", stepConfirm: "पुष्टि", stepVote: "वोट", stepDone: "पूर्ण",
+    stepSignIn: "साइन इन", stepFace: "चेहरा जाँच", home: "होम", backHome: "होम पर जाएँ",
+    loginTitle: "अपनी जानकारी दर्ज करें", loginLead: "अपनी मतदाता आईडी (जैसे SE-0001) और जन्म तिथि दर्ज करें।",
+    voterIdLabel: "मतदाता आईडी", dobLabel: "जन्म तिथि", btnContinue: "आगे बढ़ें", welcomeName: n => `नमस्ते, ${n}`,
+    receiptLabel: "आपका रसीद कोड", receiptNote: "इसे लिख लें। इस कोड से अधिकारी पुष्टि कर सकते हैं कि आपका वोट गिना गया। इसमें आपकी पसंद कभी नहीं दिखती।",
+    welcome: "स्वागत है, मतदाता", leadScan: "कैमरे की ओर देखें और अपनी पहचान सत्यापित करने के लिए “चेहरा जाँच शुरू करें” दबाएँ।",
+    btnScan: "चेहरा जाँच शुरू करें", btnCamera: "कैमरा चालू करें", startingCamera: "कैमरा शुरू हो रहा है…", cameraOff: "कैमरा बंद है",
+    tip1: "कैमरे के सामने केवल आप हों", tip2: "अच्छी रोशनी में कैमरे की ओर देखें",
+    tip3: "1 बीप पर आँखें बंद करें, 2 बीप पर खोलें",
+    look: "कैमरे की ओर देखें", closeEyes: "अपनी आँखें बंद करें", openEyes: "अपनी आँखें खोलें", verifying: "पहचान सत्यापित की जा रही है…",
+    confirmTitle: "क्या यह आप हैं?", confirmLead: "आगे बढ़ने से पहले नीचे दी गई मतदाता आईडी जाँचें।",
+    recognisedId: "पहचानी गई मतदाता आईडी", btnYes: "हाँ, यह मैं हूँ", btnRescan: "मैं नहीं हूँ, फिर से स्कैन करें",
+    ballotTitle: "अपना वोट डालें", ballotLead: "एक विकल्प चुनें, फिर बटन दबाएँ। आपका वोट गुप्त है।",
+    selectOption: "वोट देने के लिए एक विकल्प चुनें", castFor: n => `${n} को मेरा वोट दें`, recording: "वोट दर्ज हो रहा है…",
+    option: n => `विकल्प ${n}`, notaSub: "इनमें से कोई नहीं",
+    doneTitle: "मतदान के लिए धन्यवाद!", doneLead: "आपका वोट सुरक्षित और गुप्त रूप से दर्ज हो गया है।",
+    countdown: n => `${n} सेकंड में अगले मतदाता के लिए बूथ तैयार होगा`, nextVoter: "अगला मतदाता",
+    notOpenTitle: "मतदान अभी खुला नहीं है", notOpenText: "कृपया चुनाव अधिकारी द्वारा मतदान खोले जाने की प्रतीक्षा करें।",
+    closedTitle: "मतदान समाप्त हो गया है", closedText: "धन्यवाद। अब और वोट स्वीकार नहीं किए जा रहे हैं।",
+    err: {
+      not_recognised: "चेहरा किसी पंजीकृत मतदाता से मेल नहीं खाता।", no_face: "कैमरे को अपना चेहरा साफ़ दिखाएँ।",
+      multiple_faces: "कैमरे के सामने केवल एक व्यक्ति होना चाहिए।", inconsistent: "चेहरा मिलान स्पष्ट नहीं था। कृपया फिर से प्रयास करें।",
+      liveness_face: "आँखें बंद करते समय चेहरा कैमरे में रखें।", liveness_closed: "हम आपकी आँखें बंद होते नहीं देख पाए। कृपया फिर से प्रयास करें।",
+      liveness_open: "कृपया आँखें खोलें और कैमरे की ओर देखें।", already_voted: "आप इस चुनाव में पहले ही वोट दे चुके हैं।",
+      not_registered: "यह चेहरा मतदाता सूची में नहीं है।", not_open: "मतदान खुला नहीं है।",
+      generic: "कुछ गलत हो गया। कृपया फिर से प्रयास करें।",
+      bad_login: "मतदाता आईडी और जन्म तिथि किसी पंजीकृत मतदाता से मेल नहीं खातीं।",
+      locked: "इस मतदाता आईडी के लिए बहुत अधिक असफल प्रयास। कृपया मतदान केंद्र पर वोट दें।",
+      no_face_data: "इस मतदाता का चेहरा डेटा उपलब्ध नहीं है। कृपया मतदान केंद्र पर वोट दें।",
+      rate_limited: "बहुत अधिक प्रयास। कृपया 10 मिनट बाद प्रयास करें।",
+    },
+  },
+  kn: {
+    exit: "ಬೂತ್‌ನಿಂದ ನಿರ್ಗಮಿಸಿ", stepScan: "ಮುಖ ಸ್ಕ್ಯಾನ್", stepConfirm: "ದೃಢೀಕರಣ", stepVote: "ಮತ", stepDone: "ಮುಗಿದಿದೆ",
+    stepSignIn: "ಸೈನ್ ಇನ್", stepFace: "ಮುಖ ಪರಿಶೀಲನೆ", home: "ಮುಖಪುಟ", backHome: "ಮುಖಪುಟಕ್ಕೆ ಹಿಂತಿರುಗಿ",
+    loginTitle: "ನಿಮ್ಮ ವಿವರಗಳನ್ನು ನಮೂದಿಸಿ", loginLead: "ನಿಮ್ಮ ಮತದಾರರ ಐಡಿ (ಉದಾ. SE-0001) ಮತ್ತು ಜನ್ಮ ದಿನಾಂಕವನ್ನು ನಮೂದಿಸಿ.",
+    voterIdLabel: "ಮತದಾರರ ಐಡಿ", dobLabel: "ಜನ್ಮ ದಿನಾಂಕ", btnContinue: "ಮುಂದುವರಿಸಿ", welcomeName: n => `ನಮಸ್ಕಾರ, ${n}`,
+    receiptLabel: "ನಿಮ್ಮ ರಸೀದಿ ಕೋಡ್", receiptNote: "ಇದನ್ನು ಬರೆದಿಟ್ಟುಕೊಳ್ಳಿ. ಈ ಕೋಡ್‌ನಿಂದ ನಿಮ್ಮ ಮತ ಎಣಿಕೆಯಾಗಿದೆ ಎಂದು ಅಧಿಕಾರಿ ದೃಢಪಡಿಸಬಹುದು. ಇದು ನಿಮ್ಮ ಆಯ್ಕೆಯನ್ನು ಎಂದಿಗೂ ತೋರಿಸುವುದಿಲ್ಲ.",
+    welcome: "ಸ್ವಾಗತ, ಮತದಾರರೇ", leadScan: "ಕ್ಯಾಮೆರಾದತ್ತ ನೋಡಿ ಮತ್ತು ನಿಮ್ಮ ಗುರುತನ್ನು ಪರಿಶೀಲಿಸಲು “ಮುಖ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭಿಸಿ” ಒತ್ತಿರಿ.",
+    btnScan: "ಮುಖ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭಿಸಿ", btnCamera: "ಕ್ಯಾಮೆರಾ ಆನ್ ಮಾಡಿ", startingCamera: "ಕ್ಯಾಮೆರಾ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…", cameraOff: "ಕ್ಯಾಮೆರಾ ಆಫ್ ಆಗಿದೆ",
+    tip1: "ಕ್ಯಾಮೆರಾದ ಮುಂದೆ ನೀವು ಮಾತ್ರ ಇರಬೇಕು", tip2: "ಉತ್ತಮ ಬೆಳಕಿನಲ್ಲಿ ಕ್ಯಾಮೆರಾದತ್ತ ನೋಡಿ",
+    tip3: "1 ಬೀಪ್‌ಗೆ ಕಣ್ಣು ಮುಚ್ಚಿ, 2 ಬೀಪ್‌ಗೆ ತೆರೆಯಿರಿ",
+    look: "ಕ್ಯಾಮೆರಾದತ್ತ ನೋಡಿ", closeEyes: "ನಿಮ್ಮ ಕಣ್ಣುಗಳನ್ನು ಮುಚ್ಚಿ", openEyes: "ನಿಮ್ಮ ಕಣ್ಣುಗಳನ್ನು ತೆರೆಯಿರಿ", verifying: "ಗುರುತು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
+    confirmTitle: "ಇದು ನೀವೇ?", confirmLead: "ಮುಂದುವರಿಯುವ ಮೊದಲು ಕೆಳಗಿನ ಮತದಾರರ ಐಡಿ ಪರಿಶೀಲಿಸಿ.",
+    recognisedId: "ಗುರುತಿಸಲಾದ ಮತದಾರರ ಐಡಿ", btnYes: "ಹೌದು, ಇದು ನಾನೇ", btnRescan: "ನಾನಲ್ಲ, ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ",
+    ballotTitle: "ನಿಮ್ಮ ಮತ ಚಲಾಯಿಸಿ", ballotLead: "ಒಂದು ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ, ನಂತರ ಬಟನ್ ಒತ್ತಿರಿ. ನಿಮ್ಮ ಮತ ಗೌಪ್ಯವಾಗಿರುತ್ತದೆ.",
+    selectOption: "ಮತ ಹಾಕಲು ಒಂದು ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ", castFor: n => `${n} ಗೆ ನನ್ನ ಮತ`, recording: "ಮತ ದಾಖಲಾಗುತ್ತಿದೆ…",
+    option: n => `ಆಯ್ಕೆ ${n}`, notaSub: "ಮೇಲಿನ ಯಾರೂ ಅಲ್ಲ",
+    doneTitle: "ಮತದಾನ ಮಾಡಿದ್ದಕ್ಕಾಗಿ ಧನ್ಯವಾದಗಳು!", doneLead: "ನಿಮ್ಮ ಮತವನ್ನು ಸುರಕ್ಷಿತವಾಗಿ ಮತ್ತು ಗೌಪ್ಯವಾಗಿ ದಾಖಲಿಸಲಾಗಿದೆ.",
+    countdown: n => `${n} ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಮುಂದಿನ ಮತದಾರರಿಗೆ ಬೂತ್ ಸಿದ್ಧವಾಗುತ್ತದೆ`, nextVoter: "ಮುಂದಿನ ಮತದಾರರು",
+    notOpenTitle: "ಮತದಾನ ಇನ್ನೂ ತೆರೆದಿಲ್ಲ", notOpenText: "ಚುನಾವಣಾ ಅಧಿಕಾರಿ ಮತದಾನ ತೆರೆಯುವವರೆಗೆ ದಯವಿಟ್ಟು ಕಾಯಿರಿ.",
+    closedTitle: "ಮತದಾನ ಮುಕ್ತಾಯವಾಗಿದೆ", closedText: "ಧನ್ಯವಾದಗಳು. ಇನ್ನು ಮುಂದೆ ಮತಗಳನ್ನು ಸ್ವೀಕರಿಸಲಾಗುವುದಿಲ್ಲ.",
+    err: {
+      not_recognised: "ಮುಖವು ಯಾವುದೇ ನೋಂದಾಯಿತ ಮತದಾರರೊಂದಿಗೆ ಹೊಂದಿಕೆಯಾಗಲಿಲ್ಲ.", no_face: "ನಿಮ್ಮ ಮುಖವನ್ನು ಕ್ಯಾಮೆರಾಗೆ ಸ್ಪಷ್ಟವಾಗಿ ತೋರಿಸಿ.",
+      multiple_faces: "ಕ್ಯಾಮೆರಾದ ಮುಂದೆ ಒಬ್ಬರೇ ಇರಬೇಕು.", inconsistent: "ಮುಖ ಹೊಂದಾಣಿಕೆ ಸ್ಪಷ್ಟವಾಗಿರಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+      liveness_face: "ಕಣ್ಣು ಮುಚ್ಚುವಾಗ ಮುಖವನ್ನು ಕ್ಯಾಮೆರಾದಲ್ಲಿ ಇಡಿ.", liveness_closed: "ನಿಮ್ಮ ಕಣ್ಣು ಮುಚ್ಚಿದ್ದು ಕಾಣಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+      liveness_open: "ದಯವಿಟ್ಟು ಕಣ್ಣು ತೆರೆದು ಕ್ಯಾಮೆರಾದತ್ತ ನೋಡಿ.", already_voted: "ನೀವು ಈ ಚುನಾವಣೆಯಲ್ಲಿ ಈಗಾಗಲೇ ಮತ ಹಾಕಿದ್ದೀರಿ.",
+      not_registered: "ಈ ಮುಖ ಮತದಾರರ ಪಟ್ಟಿಯಲ್ಲಿ ಇಲ್ಲ.", not_open: "ಮತದಾನ ತೆರೆದಿಲ್ಲ.",
+      generic: "ಏನೋ ತಪ್ಪಾಗಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+      bad_login: "ಮತದಾರರ ಐಡಿ ಮತ್ತು ಜನ್ಮ ದಿನಾಂಕ ಯಾವುದೇ ನೋಂದಾಯಿತ ಮತದಾರರಿಗೆ ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ.",
+      locked: "ಈ ಮತದಾರರ ಐಡಿಗೆ ಹಲವು ವಿಫಲ ಪ್ರಯತ್ನಗಳು. ದಯವಿಟ್ಟು ಮತಗಟ್ಟೆಯಲ್ಲಿ ಮತ ಹಾಕಿ.",
+      no_face_data: "ಈ ಮತದಾರರ ಮುಖ ಮಾಹಿತಿ ಲಭ್ಯವಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತಗಟ್ಟೆಯಲ್ಲಿ ಮತ ಹಾಕಿ.",
+      rate_limited: "ಹಲವು ಪ್ರಯತ್ನಗಳು. 10 ನಿಮಿಷಗಳ ನಂತರ ಪ್ರಯತ್ನಿಸಿ.",
+    },
+  },
+};
+const VOICE_LANG = { en: "en-IN", hi: "hi-IN", kn: "kn-IN" };
+const stored = key => { try { return localStorage.getItem(key); } catch (_) { return null; } };
+const store = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+
+let lang = I18N[stored("se-lang")] ? stored("se-lang") : "en";
+let voiceOn = stored("se-voice") !== "off";
+const t = key => I18N[lang][key] ?? I18N.en[key];
+const errText = (code, fallback) => I18N[lang].err[code] || (lang === "en" && fallback) || I18N[lang].err.generic;
+
+/** Speak a translation key (falls back to English audio if no voice for the language). */
+function say(key, ...args) {
+  if (!voiceOn) return;
+  const pick = dict => typeof dict[key] === "function" ? dict[key](...args) : dict[key];
+  speak(pick(I18N[lang]), VOICE_LANG[lang], pick(I18N.en));
+}
+function sayText(text, englishText) { if (voiceOn) speak(text, VOICE_LANG[lang], englishText); }
+
+function applyLanguage() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  document.querySelectorAll("[data-t]").forEach(el => { const v = t(el.dataset.t); if (typeof v === "string") el.textContent = v; });
+  document.querySelectorAll("[data-option]").forEach(el => { el.textContent = t("option")(el.dataset.option); });
+  if (typeof updateCastButton === "function") updateCastButton();
+}
+document.querySelectorAll("[data-lang]").forEach(b => b.addEventListener("click", () => {
+  lang = b.dataset.lang; store("se-lang", lang); applyLanguage();
+}));
+const voiceBtn = document.getElementById("voiceBtn");
+function applyVoice() { voiceBtn.setAttribute("aria-pressed", String(voiceOn)); }
+voiceBtn.addEventListener("click", () => {
+  voiceOn = !voiceOn; store("se-voice", voiceOn ? "on" : "off"); applyVoice();
+  if (!voiceOn && "speechSynthesis" in window) speechSynthesis.cancel();
+});
+applyVoice();
+applyLanguage();
+
+// Reload automatically when the officer opens or closes voting.
+const BOOTH_STATE = {{ election.state|tojson }};
+setInterval(async () => {
+  try {
+    const r = await fetch("{{ url_for('results_api') }}");
+    if (r.ok && (await r.json()).election.state !== BOOTH_STATE && !document.getElementById("stepBallot")?.offsetParent) location.reload();
+  } catch (_) {}
+}, 10000);
+</script>
+
+{% if election.state == 'open' %}
+<script>
+const FRAMES = {{ frames|tojson }};
+const LIVENESS = {{ 'true' if liveness else 'false' }};
+const $ = id => document.getElementById(id);
+const video = $("video");
+const sections = ["stepScan", "stepConfirm", "stepBallot", "stepDone"];
+let stream = null, resetTimer = null;
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+document.querySelectorAll(".candidate .avatar").forEach(el => {
+  el.style.background = candidateColour(Number(el.dataset.index), el.dataset.name);
+});
+
+function goTo(step) {
+  sections.forEach((id, i) => { $(id).hidden = i !== step; });
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    li.className = i < step ? "done" : i === step ? "active" : "";
+  });
+  $("exitBtn").hidden = step === 1 || step === 2;  // don't leave mid-vote
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showPrompt(key, kind = "") {
+  const prompt = $("prompt");
+  if (!key) { prompt.hidden = true; return; }
+  prompt.hidden = false;
+  prompt.className = "prompt-banner " + kind;
+  prompt.textContent = t(key);
+  say(key);
+}
+
+async function turnOnCamera() {
+  try {
+    stream = await startCamera(video);
+    $("cameraEmpty").hidden = true;
+    $("cameraBtn").hidden = true;
+    $("scanBtn").disabled = false;
+    setStatus($("scanMsg"), "");
+  } catch (error) {
+    $("cameraText").dataset.t = "cameraOff";
+    $("cameraText").textContent = t("cameraOff");
+    $("cameraBtn").hidden = false;
+    setStatus($("scanMsg"), cameraErrorText(error), "error");
+  }
+}
+
+$("scanBtn").addEventListener("click", async () => {
+  unlockAudio();
+  $("scanBtn").disabled = true;
+  setStatus($("scanMsg"), "");
+  $("camera").classList.add("scanning");
+  const body = {};
+
+  showPrompt("look");
+  await wait(600);
+  body.frames = await captureFrames(video, FRAMES.scan, 180);
+
+  if (LIVENESS) {
+    // One beep = close your eyes. Two beeps = open them (you can't read the screen with eyes closed).
+    beep(1, 660);
+    showPrompt("closeEyes", "closed");
+    await wait(900);
+    body.closed = await captureFrames(video, FRAMES.closed, 190);   // ~2 seconds of closed eyes
+    beep(2, 990);
+    showPrompt("openEyes", "open");
+    await wait(1100);   // people open their eyes a little late
+    body.reopened = await captureFrames(video, FRAMES.reopen, 170);
+  }
+
+  showPrompt(null);
+  $("camera").classList.remove("scanning");
+  setStatus($("scanMsg"), t("verifying"));
+  const { ok, data } = await postJSON("{{ url_for('voting.identify_demo_voter') }}", body);
+  $("scanBtn").disabled = false;
+
+  if (!ok) {
+    const text = errText(data.code, data.error);
+    setStatus($("scanMsg"), text, data.code === "already_voted" ? "warn" : "error");
+    sayText(text, I18N.en.err[data.code] || data.error);
+    if (data.code === "not_open") setTimeout(() => location.reload(), 2500);
+    return;
+  }
+  $("idText").textContent = data.name || data.voter_id;
+  $("idSub").textContent = data.name ? data.voter_id : "";
+  $("idAvatar").textContent = (data.name || data.voter_id).charAt(0).toUpperCase();
+  setStatus($("scanMsg"), "");
+  setStatus($("confirmMsg"), "");
+  goTo(1);
+  say("confirmTitle");
+});
+
+$("rescanBtn").addEventListener("click", () => goTo(0));
+
+$("confirmBtn").addEventListener("click", async () => {
+  $("confirmBtn").disabled = true;
+  const { ok, data } = await postJSON("{{ url_for('voting.confirm_demo_voter') }}", {});
+  $("confirmBtn").disabled = false;
+  if (!ok) { setStatus($("confirmMsg"), errText(data.code, data.error), "error"); return; }
+  $("ballotForm").reset();
+  updateCastButton();
+  setStatus($("ballotMsg"), "");
+  goTo(2);
+  say("ballotLead");
+});
+
+function selected() {
+  const input = document.querySelector('input[name="candidate"]:checked');
+  return input ? input.value : null;
+}
+function updateCastButton() {
+  const choice = selected();
+  $("castBtn").disabled = !choice;
+  $("castBtn").textContent = choice ? t("castFor")(choice) : t("selectOption");
+}
+$("ballotForm").addEventListener("change", updateCastButton);
+
+$("ballotForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const candidate = selected();
+  if (!candidate) return;
+  $("castBtn").disabled = true;
+  $("castBtn").textContent = t("recording");
+  const { ok, data } = await postJSON("{{ url_for('voting.cast_demo_ballot') }}", { candidate });
+  if (!ok) {
+    setStatus($("ballotMsg"), errText(data.code, data.error), "error");
+    setTimeout(() => goTo(0), 3000);
+    return;
+  }
+  goTo(3);
+  say("doneTitle");
+  $("receiptBox").hidden = !data.receipt;
+  $("receiptCode").textContent = data.receipt || "";
+  startCountdown(data.receipt ? 20 : 8);   // time to note the receipt code
+});
+
+function startCountdown(seconds) {
+  clearInterval(resetTimer);
+  let left = seconds;
+  const tick = () => {
+    $("countdown").textContent = t("countdown")(left);
+    if (left-- <= 0) nextVoter();
+  };
+  tick();
+  resetTimer = setInterval(tick, 1000);
+}
+function nextVoter() {
+  clearInterval(resetTimer);
+  $("ballotForm").reset();
+  setStatus($("scanMsg"), "");
+  goTo(0);
+  say("welcome");
+}
+$("nextBtn").addEventListener("click", nextVoter);
+$("cameraBtn").addEventListener("click", turnOnCamera);
+window.addEventListener("beforeunload", () => stopCamera(stream));
+
+applyLanguage();
+goTo(0);
+turnOnCamera();
+</script>
+{% endif %}
+{% endblock %}

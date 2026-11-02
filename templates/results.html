@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Results · {{ election.name }}{% endblock %}
+{% block body %}
+<header class="booth-top">
+  <div class="brand">
+    <span class="brand-mark">{{ icon('ballot') }}</span>
+    <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Official results</span></span>
+  </div>
+  <div class="booth-tools">
+    {% if history|length > 1 %}
+    <select class="input" id="pick" style="min-height:36px;padding:6px 10px;width:auto" aria-label="Choose election">
+      {% for e in history %}
+      <option value="{{ url_for('results_page', election_id=e.election_id) }}" {{ 'selected' if e.election_id == election.election_id }}>{{ e.name }}{{ '' if e.state == 'closed' else ' (' ~ e.state ~ ')' }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('dashboard') }}">{{ icon('arrow-left') }}Dashboard</a>
+  </div>
+</header>
+
+<main class="declare">
+  <div class="declare-head">
+    <div class="eyebrow">{{ 'Result declared' if results else 'Result pending' }}</div>
+    <h1>{{ election.name }}</h1>
+    <p>
+      {% if election.closed_at %}Voting closed {{ election.closed_at[:16] }}{% elif election.opened_at %}Voting opened {{ election.opened_at[:16] }}{% else %}Not opened yet{% endif %}
+      · {{ state_badge(election.state) }}
+    </p>
+  </div>
+
+  {% if not results %}
+  <section class="card">
+    <div class="sealed">
+      <div class="sealed-icon">{{ icon('lock') }}</div>
+      <h3>Results will be declared after voting closes</h3>
+      <p>{{ turnout.voted }} of {{ turnout.registered }} voters have voted so far ({{ turnout.participation }}%). Vote counts stay sealed until the election is closed.</p>
+    </div>
+  </section>
+  {% else %}
+    {% set total = results.total %}
+    {% if results.leaders|length == 1 %}
+      {% set w = results.leaders[0] %}
+      {% set wi = results.labels.index(w) %}
+      <section class="winner" aria-live="polite">
+        <div class="trophy">{{ icon('trophy') }}</div>
+        <div class="w-label">Winner</div>
+        <div class="w-name">{{ w }}</div>
+        <div class="w-figs">{{ results['values'][wi] }} vote{{ '' if results['values'][wi] == 1 else 's' }} · {{ results.percentages[wi] }}% of all votes
+        </div>
+      </section>
+    {% elif results.leaders|length > 1 %}
+      <section class="winner">
+        <div class="trophy">{{ icon('flag') }}</div>
+        <div class="w-label">Tie</div>
+        <div class="w-name">{{ results.leaders|join(' · ') }}</div>
+        <div class="w-figs">Tied on {{ results['values'][results.labels.index(results.leaders[0])] }} votes each. A tie-break is needed.</div>
+      </section>
+    {% else %}
+      <section class="winner muted-winner">
+        <div class="w-label">No winner</div>
+        <div class="w-name">{{ 'No votes cast' if total == 0 else 'Only NOTA votes' }}</div>
+        <div class="w-figs">No candidate received any votes.</div>
+      </section>
+    {% endif %}
+
+    <div class="declare-grid">
+      <section class="card">
+        <div class="card-title">Full results</div>
+        <div class="card-sub">{{ total }} valid vote{{ '' if total == 1 else 's' }} counted</div>
+        {% for name in results.labels %}
+        {% set i = loop.index0 %}
+        <div class="result-row">
+          <div class="result-head">
+            <span class="result-name"><span class="swatch" data-index="{{ i }}" data-name="{{ name }}"></span>{{ name }}
+              {% if name in results.leaders %}<span class="badge saffron plain">{{ 'Tied' if results.tie else 'Winner' }}</span>{% endif %}</span>
+            <span class="result-figs"><b>{{ results['values'][i] }}</b> {{ 'vote' if results['values'][i] == 1 else 'votes' }} · {{ results.percentages[i] }}%</span>
+          </div>
+          <div class="track"><span data-index="{{ i }}" data-name="{{ name }}" style="width:{{ results.percentages[i] }}%"></span></div>
+        </div>
+        {% endfor %}
+        {% if results.nota_votes %}<p class="card-sub" style="margin:14px 0 0">NOTA votes are counted and shown, but don't change who wins.</p>{% endif %}
+      </section>
+
+      <div class="grid" style="gap:16px">
+        <section class="card">
+          <div class="card-title">Turnout</div>
+          <div class="big-stat">{{ turnout.participation }}%</div>
+          <div class="card-sub" style="margin:4px 0 10px">{{ turnout.voted }} of {{ turnout.registered }} registered voters</div>
+          <div class="stat-meter"><span style="width:{{ turnout.participation }}%"></span></div>
+        </section>
+        <section class="card">
+          <div class="card-title">Integrity checks</div>
+          <div class="checks" style="margin-top:12px">
+            <div class="check-row {{ 'ok' if results.checks.chain_ok else 'bad' }}">
+              {{ icon('check-circle' if results.checks.chain_ok else 'x-circle') }}
+              <span>Ballot hash chain {{ 'intact' if results.checks.chain_ok else 'BROKEN' }}<small>{{ results.checks.chain_message }}</small></span>
+            </div>
+            <div class="check-row {{ 'ok' if results.checks.counts_match else 'bad' }}">
+              {{ icon('check-circle' if results.checks.counts_match else 'x-circle') }}
+              <span>Ballots match voters who voted<small>{{ total }} ballots · {{ results.checks.turnout_count }} voters marked as voted</small></span>
+            </div>
+            {% if results.checks.receipts %}
+            <div class="check-row {{ 'ok' if results.checks.receipts == total else 'bad' }}">
+              {{ icon('check-circle' if results.checks.receipts == total else 'x-circle') }}
+              <span>Every vote has a voter receipt<small>{{ results.checks.receipts }} receipts · voters can check theirs at /verify</small></span>
+            </div>
+            {% endif %}
+            <div class="check-row ok">
+              {{ icon('lock') }}
+              <span>Votes are permanent<small>Ballots can't be edited or deleted — enforced by the database.</small></span>
+            </div>
+          </div>
+        </section>
+        {% if session.admin_logged_in %}<a class="btn btn-secondary btn-block" href="{{ url_for('export_csv', election=election.election_id) }}">{{ icon('download') }}Download results (CSV)</a>{% endif %}
+      </div>
+    </div>
+  {% endif %}
+  <p class="footer-note">Classroom demonstration · Fictional demo data · Not a real election</p>
+</main>
+
+<script>
+document.querySelectorAll("[data-index]").forEach(el => {
+  el.style.background = candidateColour(Number(el.dataset.index), el.dataset.name);
+});
+const pick = document.getElementById("pick");
+if (pick) pick.addEventListener("change", () => { window.location = pick.value; });
+</script>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Registrations{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Voter registrations</h1>
+    <p>Every registration is checked automatically by the AI; only ones with warnings need your review.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="{{ url_for('registration.self_register_page') }}">{{ icon('user-plus') }}Register voter</a>
+  </div>
+</div>
+
+<section class="card" style="margin-bottom:16px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+  <div style="flex:1;min-width:260px">
+    <div class="card-title">Automatic approval {% if auto_approve %}<span class="badge green">On</span>{% else %}<span class="badge slate">Off</span>{% endif %}</div>
+    <p class="card-sub" style="margin:4px 0 0">
+      {% if auto_approve %}Applications where <b>every</b> check passes (valid ID, 18+, live person, clear photo, not a duplicate face, ID card photo matches) are approved instantly.
+      Only applications with warnings wait here for you. {{ counts.auto }} approved automatically so far.
+      {% else %}Every application waits for you to approve it manually.{% endif %}
+    </p>
+  </div>
+  <button class="btn {{ 'btn-secondary' if auto_approve else 'btn-primary' }}" id="autoToggle" type="button" data-enabled="{{ 'true' if auto_approve else 'false' }}">
+    {{ 'Turn off — review everyone manually' if auto_approve else 'Turn on automatic approval' }}</button>
+</section>
+<div class="alert" id="msg" role="status" aria-live="polite" style="margin-bottom:16px"></div>
+
+<nav class="tabs" aria-label="Filter">
+  {% for key, label in [('pending', 'Needs review'), ('auto', 'Auto-approved'), ('approved', 'All approved'), ('rejected', 'Rejected'), ('all', 'All')] %}
+  <a href="{{ url_for('registration.registrations_page', status=key) }}" class="{{ 'active' if status == key }}">{{ label }}
+    <span class="count">{{ (counts.pending + counts.approved + counts.rejected + counts.removed) if key == 'all' else counts[key] }}</span></a>
+  {% endfor %}
+</nav>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Applicant</th><th>ID</th><th>Age</th><th>Automatic checks</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for a in applications %}
+        <tr>
+          <td>
+            <div class="voter-cell">
+              <img class="thumb" src="{{ url_for('registration.registration_photo', ref=a.ref) }}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+              <span><b>{{ a.full_name }}</b><small class="mono">{{ a.ref }} · {{ a.submitted_at[:16] }}</small></span>
+            </div>
+          </td>
+          <td><span class="mono">{{ a.id_masked }}</span><small style="display:block;color:var(--muted)">{{ 'Aadhaar' if a.id_type == 'aadhaar' else 'Voter ID' }}</small></td>
+          <td>{{ a.age }}</td>
+          <td>
+            {% if a.flags %}<span class="badge saffron">{{ a.flags }} warning{{ '' if a.flags == 1 else 's' }}</span>
+            {% if a.duplicate_of %}<small style="display:block;color:var(--danger-text);margin-top:4px">Possible duplicate of {{ a.duplicate_of }}</small>{% endif %}
+            {% else %}<span class="badge green">All passed</span>{% endif %}
+          </td>
+          <td>
+            {% if a.status == 'pending' %}<span class="badge saffron plain">Pending</span>
+            {% elif a.status == 'approved' %}<span class="badge green">Approved</span>{% if a.reviewed_by == auto_approver %} <span class="badge blue plain" title="Approved automatically: all checks passed">Auto</span>{% endif %}
+            {% elif a.status == 'rejected' %}<span class="badge red">Rejected</span>
+            {% else %}<span class="badge slate">Removed</span>{% endif %}
+          </td>
+          <td class="td-actions"><a class="btn {{ 'btn-primary' if a.status == 'pending' else 'btn-ghost' }} btn-sm" href="{{ url_for('registration.registration_detail', ref=a.ref) }}">{{ 'Review' if a.status == 'pending' else 'View' }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">
+          {% if status == 'pending' %}Nothing needs your review.{% if auto_approve %} Clean applications are approved automatically.{% endif %} Voters can also register themselves at <a href="{{ url_for('registration.self_register_page') }}">/register</a>.{% else %}Nothing here yet.{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+document.getElementById("autoToggle").addEventListener("click", async event => {
+  const turningOn = event.currentTarget.dataset.enabled !== "true";
+  const ok = await confirmDialog({
+    title: turningOn ? "Turn on automatic approval?" : "Turn off automatic approval?",
+    message: turningOn
+      ? "Applications that pass every check will be approved instantly without you. Anything with a warning still comes to you."
+      : "Every new application will wait for you to approve it.",
+    confirmLabel: turningOn ? "Turn on" : "Turn off" });
+  if (!ok) return;
+  const { ok: done, data } = await postJSON("{{ url_for('registration.set_auto_approve') }}", { enabled: turningOn });
+  if (done) location.reload(); else setStatus(document.getElementById("msg"), data.error || "Could not change the setting.", "error");
+});
+</script>
+{% endblock %}

@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+data
+models
+tools
+docs
+*_backup.*
+app_before_voting.py
+Votes_backup.csv
+background.png

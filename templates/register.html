@@ -1,0 +1,157 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Register voter{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    {% if retake %}
+    <h1>Retake face for {{ retake }}</h1>
+    <p>Capture new face samples. The old samples are replaced; votes are not affected.</p>
+    {% else %}
+    <h1>Register a voter</h1>
+    <p>Capture the voter's face so they can be verified at the voting booth.</p>
+    {% endif %}
+  </div>
+</div>
+
+<ol class="steps" id="steps">
+  <li class="active">Voter ID</li>
+  <li>Camera</li>
+  <li>Capture face</li>
+  <li>Save</li>
+</ol>
+
+<div class="grid two-col" style="align-items:start">
+  <div class="card">
+    <div class="camera" id="camera">
+      <video id="video" autoplay playsinline muted hidden></video>
+      <div class="camera-guide" id="guide" hidden></div>
+      <div class="camera-empty" id="cameraEmpty">
+        <div>{{ icon('camera') }}<p style="margin-top:10px">Camera is off</p></div>
+      </div>
+      <span class="camera-tag" id="cameraTag" hidden>Fit the face inside the oval</span>
+    </div>
+    <div style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:6px">
+        <span>Face samples</span><span id="counter">0 / {{ frame_count }}</span>
+      </div>
+      <div class="progress" id="progress"><span id="progressBar"></span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label for="voterId">Demo voter ID</label>
+      <input class="input mono" id="voterId" maxlength="30" placeholder="e.g. student_01" autocomplete="off" {% if retake %}value="{{ retake }}" readonly{% else %}autofocus{% endif %}>
+      <span class="hint" id="idHint">1–30 characters: letters, numbers, _ or -</span>
+    </div>
+    {% if not retake %}
+    <div class="field">
+      <label for="fullName">Full name <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input class="input" id="fullName" maxlength="60" placeholder="Shown at the booth when they vote" autocomplete="off">
+    </div>
+    <p style="margin:-6px 0 14px;font-size:12px;color:var(--muted)">Voters can also register themselves at
+      <a href="{{ url_for('registration.self_register_page') }}">/register</a>; you then approve them under Registrations.</p>
+    {% endif %}
+
+    <div class="alert warn" style="margin-bottom:16px">Get the participant's consent before turning on the camera. Use fictional IDs only.</div>
+
+    <div style="display:grid;gap:10px">
+      <button class="btn btn-secondary btn-block" id="startBtn" type="button">{{ icon('camera') }}Turn on camera</button>
+      <button class="btn btn-primary btn-block" id="captureBtn" type="button" disabled>{{ icon('scan') }}Capture face</button>
+      <button class="btn btn-success btn-block" id="saveBtn" type="button" disabled>{{ icon('check') }}{{ 'Save new face' if retake else 'Register voter' }}</button>
+    </div>
+
+    <div class="alert" id="message" role="status" aria-live="polite" style="margin-top:16px"></div>
+
+    <ul class="tips" style="margin-top:16px">
+      <li>Good, even lighting on the face</li>
+      <li>Only one person in view</li>
+      <li>Turn the head slightly during capture</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const FRAME_COUNT = {{ frame_count }};
+const RETAKE = {{ 'true' if retake else 'false' }};
+const $ = id => document.getElementById(id);
+const video = $("video"), message = $("message");
+const idPattern = /^[A-Za-z0-9_-]{1,30}$/;
+let stream = null, frames = [];
+
+function setStep(n) {
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    li.className = i < n ? "done" : i === n ? "active" : "";
+  });
+}
+function idValid() { return idPattern.test($("voterId").value.trim()); }
+function refresh() {
+  const id = $("voterId").value.trim();
+  $("voterId").classList.toggle("invalid", id !== "" && !idValid());
+  $("idHint").style.color = id !== "" && !idValid() ? "var(--danger)" : "";
+  $("captureBtn").disabled = !stream || !idValid();
+  $("saveBtn").disabled = frames.length !== FRAME_COUNT || !idValid();
+  setStep(frames.length === FRAME_COUNT ? 3 : stream ? (idValid() ? 2 : 0) : (idValid() ? 1 : 0));
+}
+function setProgress(n) {
+  $("counter").textContent = n + " / " + FRAME_COUNT;
+  $("progressBar").style.width = (n / FRAME_COUNT * 100) + "%";
+  $("progress").classList.toggle("done", n === FRAME_COUNT);
+}
+
+$("voterId").addEventListener("input", () => { frames = []; setProgress(0); refresh(); });
+$("voterId").addEventListener("change", () => { $("voterId").value = $("voterId").value.trim(); refresh(); });
+
+$("startBtn").addEventListener("click", async () => {
+  try {
+    stream = await startCamera(video);
+    video.hidden = false; $("guide").hidden = false; $("cameraTag").hidden = false;
+    $("cameraEmpty").hidden = true;
+    $("startBtn").hidden = true;
+    setStatus(message, "Camera on. Position one person inside the oval.");
+  } catch (error) {
+    setStatus(message, cameraErrorText(error), "error");
+  }
+  refresh();
+});
+
+$("captureBtn").addEventListener("click", async () => {
+  $("captureBtn").disabled = true; $("saveBtn").disabled = true;
+  $("camera").classList.add("scanning");
+  setStatus(message, "Capturing… keep still and look at the camera.");
+  frames = await captureFrames(video, FRAME_COUNT, 150, setProgress, 320, 0.6);
+  $("camera").classList.remove("scanning");
+  $("camera").classList.add("ok");
+  setStatus(message, "Face captured. Click “" + $("saveBtn").textContent.trim() + "” to save.", "success");
+  refresh();
+});
+
+$("saveBtn").addEventListener("click", async () => {
+  const voterId = $("voterId").value.trim();
+  $("saveBtn").disabled = true; $("captureBtn").disabled = true;
+  setStatus(message, "Checking face samples and saving…");
+  const { ok, data } = await postJSON("{{ url_for('register_face') }}", { voter_id: voterId, full_name: ($("fullName") || {}).value || "", frames, retake: RETAKE });
+  $("camera").classList.remove("ok");
+  if (ok) {
+    setStep(4);
+    frames = []; setProgress(0);
+    if (RETAKE) {
+      setStatus(message, data.message + " Returning to the voter list…", "success");
+      setTimeout(() => { window.location = "{{ url_for('voters') }}"; }, 1800);
+      return;
+    }
+    setStatus(message, data.message + " You can register the next voter.", "success");
+    $("voterId").value = "";
+    $("captureBtn").disabled = true;
+    $("voterId").focus();
+  } else {
+    setStatus(message, data.error || "Registration failed.", "error");
+    frames = []; setProgress(0); refresh();
+  }
+});
+
+window.addEventListener("beforeunload", () => stopCamera(stream));
+refresh();
+</script>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% block title %}Accuracy test{% endblock %}
+{% macro pct(value) %}{{ '—' if value is none else value ~ '%' }}{% endmacro %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Face matching accuracy</h1>
+    <p>Tests the recogniser on the registered face samples. Use these numbers in your project report.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="location.reload()">{{ icon('refresh') }}Run again</button>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert warn">{{ error }} Register at least one voter first.</div>
+{% else %}
+<section class="grid stats">
+  <div class="card metric">
+    <div class="stat-label">Correctly recognised</div>
+    <div class="stat-value" style="color:var(--green-text)">{{ pct(report.genuine_accept_rate) }}</div>
+    <small>Genuine accept rate</small>
+  </div>
+  <div class="card metric">
+    <div class="stat-label">Wrongly rejected</div>
+    <div class="stat-value">{{ pct(report.false_reject_rate) }}</div>
+    <small>False reject rate (FRR)</small>
+  </div>
+  <div class="card metric">
+    <div class="stat-label">Mistaken for another voter</div>
+    <div class="stat-value">{{ pct(report.misidentification_rate) }}</div>
+    <small>Misidentification rate</small>
+  </div>
+  <div class="card metric">
+    <div class="stat-label">Stranger accepted</div>
+    <div class="stat-value" style="color:{{ 'var(--danger-text)' if report.false_accept_rate else 'var(--green-text)' }}">{{ pct(report.false_accept_rate) }}</div>
+    <small>False accept rate (FAR) · {{ report.impostor_tests }} tests</small>
+  </div>
+</section>
+
+<section class="grid two-col" style="align-items:start">
+  <div class="card">
+    <div class="card-title">Per voter</div>
+    <div class="card-sub">{{ report.samples }} face samples · match threshold {{ threshold }}</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Voter</th><th>Samples</th><th>Recognised</th><th>As stranger: accepted</th></tr></thead>
+        <tbody>
+          {% for v in report.voters %}
+          <tr>
+            <td class="mono"><b>{{ v.voter_id }}</b></td>
+            <td>{{ v.samples }}</td>
+            <td>
+              <div class="bar-cell">
+                <div class="track"><span style="width:{{ v.accuracy or 0 }}%;background:var(--green)"></span></div>
+                <span class="mono">{{ pct(v.accuracy) }}</span>
+              </div>
+            </td>
+            <td>
+              {% if v.far is none %}<span style="color:var(--muted)">n/a</span>
+              {% elif v.far == 0 %}<span class="badge green">0% — rejected</span>
+              {% else %}<span class="badge red">{{ v.far }}%</span><small style="display:block;color:var(--muted)">matched as {{ v.false_accept_as }}</small>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if report.false_accept_rate %}
+    <div class="alert warn" style="margin-top:14px">Some voters were accepted as someone else. This usually means two IDs were registered with the same person's face, or the threshold is too loose. Try lowering <code>FACE_MATCH_THRESHOLD</code> (now {{ threshold }}).</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-title">How this test works</div>
+    <ul class="explain" style="margin-top:10px">
+      <li><b>Recognised:</b> each stored sample is matched against the others, after removing it and its {{ report.window }} nearest frames on each side (so near-identical frames don't inflate the score).</li>
+      <li><b>Stranger accepted:</b> each voter is removed completely and their samples are matched against everyone else. A good system rejects them all.</li>
+      <li><b>Distances:</b> typical same-person distance {{ report.genuine_distance }}, typical stranger distance {{ report.impostor_distance }}. The threshold {{ threshold }} should sit between them.</li>
+      <li><b>Liveness check:</b> {{ 'ON — voters must close and open their eyes' if liveness else 'OFF' }}.</li>
+      <li><b>Limits:</b> samples come from one session per voter, so real-world accuracy (different day, lighting) will be lower.</li>
+    </ul>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, state_badge %}
+{% macro nav_link(endpoint, label, icon_name) -%}
+<a href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint %} class="active" aria-current="page"{% endif %}>{{ icon(icon_name) }}<span>{{ label }}</span></a>
+{%- endmacro %}
+{% block body %}
+<div class="app">
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('dashboard') }}">
+      <span class="brand-mark">{{ icon('ballot') }}</span>
+      <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Admin portal</span></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <div class="nav-label">Overview</div>
+      {{ nav_link('dashboard', 'Dashboard', 'dashboard') }}
+      <div class="nav-label">Election</div>
+      {{ nav_link('election_page', 'Election setup', 'flag') }}
+      {{ nav_link('voting.vote_page', 'Voting booth', 'vote') }}
+      {{ nav_link('results_page', 'Results', 'trophy') }}
+      <a href="{{ url_for('live_screen') }}" target="_blank" rel="noopener">{{ icon('activity') }}<span>Live screen ↗</span></a>
+      <div class="nav-label">Voters</div>
+      <a href="{{ url_for('registration.registrations_page') }}"{% if request.endpoint and request.endpoint.startswith('registration.registration') %} class="active" aria-current="page"{% endif %}>{{ icon('inbox') }}<span>Registrations</span>{% if pending_count %}<span class="nav-count">{{ pending_count }}</span>{% endif %}</a>
+      {{ nav_link('registration.self_register_page', 'Register voter', 'user-plus') }}
+      {{ nav_link('voters', 'Voter list', 'users') }}
+      {{ nav_link('register_voter', 'Quick register (face only)', 'camera') }}
+      <div class="nav-label">Reports</div>
+      {{ nav_link('verify_vote', 'Verify a receipt', 'shield') }}
+      {{ nav_link('audit', 'Audit log', 'file-text') }}
+      {{ nav_link('accuracy', 'Accuracy test', 'activity') }}
+      {{ nav_link('logout', 'Log out', 'logout') }}
+    </nav>
+    <div class="sidebar-foot side-status">
+      {% if current %}
+      <span class="name" title="{{ current.name }}">{{ current.name }}</span>
+      <span>{{ state_badge(current.state) }}</span>
+      {% endif %}
+    </div>
+  </aside>
+  <main class="main" id="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

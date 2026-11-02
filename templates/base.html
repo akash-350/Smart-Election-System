@@ -1,0 +1,16 @@
+{% from "_icons.html" import icon %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Smart Election{% endblock %} · Smart Election</title>
+<meta name="theme-color" content="#1E3A8A">
+<link rel="stylesheet" href="{{ asset('style.css') }}">
+<script src="{{ asset('app.js') }}"></script>
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+{% block body %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Registration status{% endblock %}
+{% block body %}
+<header class="booth-top">
+  <div class="brand">
+    <span class="brand-mark">{{ icon('ballot') }}</span>
+    <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Registration status</span></span>
+  </div>
+  <div class="booth-tools">
+    <a class="btn btn-ghost" href="{{ url_for('registration.self_register_page') }}">Register</a>
+  </div>
+</header>
+
+<main class="public-wrap" style="max-width:560px">
+  <form class="card booth-card" method="POST">
+    <h1 style="font-size:24px">Check your registration</h1>
+    <p class="lead" style="font-size:15px">Enter the reference number you got after registering, and your date of birth.</p>
+    {% if error %}<div class="alert error" role="alert" style="margin-bottom:16px">{{ error }}</div>{% endif %}
+    <div class="field">
+      <label for="ref">Reference number</label>
+      <input class="input mono" id="ref" name="ref" placeholder="SE-0001" value="{{ ref }}" required autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="dob">Date of birth</label>
+      <input class="input" id="dob" name="dob" type="date" required>
+    </div>
+    <button class="btn btn-primary btn-lg btn-block" type="submit">Check status</button>
+  </form>
+
+  {% if result %}
+  <section class="card booth-card" style="margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div class="card-sub" style="margin:0">{{ result.ref }}</div>
+        <h2 style="font-size:20px">{{ result.full_name }}</h2>
+      </div>
+      {% if result.status == 'approved' %}<span class="badge green">Approved</span>
+      {% elif result.status == 'rejected' %}<span class="badge red">Not approved</span>
+      {% elif result.status == 'removed' %}<span class="badge slate">Removed</span>
+      {% else %}<span class="badge saffron">Waiting for review</span>{% endif %}
+    </div>
+    <div style="margin-top:14px">
+      {% if result.status == 'approved' %}
+        <div class="alert success">You are registered. On election day, go to the voting booth and scan your face. Your voter ID is <b class="mono">{{ result.ref }}</b>.</div>
+      {% elif result.status == 'rejected' %}
+        <div class="alert error">Your application was not approved. Reason: {{ result.reject_reason }}<br>You can register again with correct details.</div>
+      {% elif result.status == 'removed' %}
+        <div class="alert">This registration was removed by the election officer. You can register again.</div>
+      {% else %}
+        <div class="alert">Your application was received on {{ result.submitted_at[:16] }} and is waiting for the election officer.</div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+  <p class="footer-note">Classroom demonstration · Not for real elections</p>
+</main>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Verify your vote{% endblock %}
+{% block body %}
+<header class="booth-top">
+  <a class="brand" href="{{ url_for('dashboard') }}">
+    <span class="brand-mark">{{ icon('ballot') }}</span>
+    <span><span class="brand-name">SMART ELECTION</span><br><span class="brand-sub">Verify your vote</span></span>
+  </a>
+  <div class="booth-tools"><a class="btn btn-ghost" href="{{ url_for('dashboard') }}">{{ icon('arrow-left') }}<span>Home</span></a></div>
+</header>
+
+<main class="public-wrap" style="max-width:600px">
+  <form class="card booth-card" method="POST">
+    <span class="stat-icon green" style="margin-bottom:12px">{{ icon('shield') }}</span>
+    <h1 style="font-size:24px">Was my vote counted?</h1>
+    <p class="lead" style="font-size:15px">Enter the receipt code you got after voting. We'll confirm your vote is in the
+      tamper-proof ballot box. <b>Your choice is never shown</b>: the receipt isn't linked to your ballot.</p>
+    <div class="field">
+      <label for="code">Receipt code</label>
+      <input class="input mono receipt-input" id="code" name="code" placeholder="XXXX-XXXX-XXXX" value="{{ code }}"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+    </div>
+    <button class="btn btn-primary btn-lg btn-block" type="submit">Check my vote</button>
+  </form>
+
+  {% if result %}
+  <section class="card booth-card verify-result ok" role="status">
+    <div class="done-icon" style="width:64px;height:64px;margin:0 0 12px">{{ icon('check') }}</div>
+    <h2>Your vote was counted</h2>
+    <p>Your ballot is safely recorded in <b>{{ result.name }}</b>. It can't be changed or deleted, and nobody can see
+      whom you voted for.</p>
+  </section>
+  {% elif result is sameas false %}
+  <section class="card booth-card verify-result bad" role="alert">
+    <h2>Receipt not found</h2>
+    <p>Check the code for typing mistakes. Receipts are 12 letters and numbers, like <span class="mono">ABCD-EFGH-JKMN</span>.</p>
+  </section>
+  {% endif %}
+  <p class="footer-note">Classroom demonstration · Not for real elections</p>
+</main>
+{% endblock %}
